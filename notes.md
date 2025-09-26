@@ -5,6 +5,8 @@ Run VerifyMatch on some crisis datasets...
 - crisismmd
 - humAID
 
+DO 15,000 PG LABELS
+
 ## GPT Explanation
 Awesome — let’s redo the “work backwards” plan and explicitly weave **calibration** into the pipeline you’ve got (notes + `train.py`).
 
@@ -136,3 +138,27 @@ Then apply τ inside the VerifyMatch loop at the point where `tmp_labels2 = F.so
 * [ ] **Report** Accuracy/F1 from `train.py` plus **calibration** metrics from calibrated probs【】
 
 If you want, paste a snippet of your `calibrate.py` flags and I’ll drop in the exact one-liners (fit/apply) and the tiny code change to `train.py` at the **pseudolabel generation** site so VerifyMatch uses calibrated confidence.
+
+
+## 09/25 Meeting
+- for input, just use tweet txt
+- try to understand bert last output
+- labeled = 200,400,600/class
+- unlabeled = rest of data, relabeled by an llm
+
+- FOLLOW DONGPING's model
+- use gemini for...
+- DONGPING REPO
+
+https://github.com/deeplearning-lab-csueb/Fine-tune-Multimodal-LLM-for-CrisisMMD
+
+https://unsloth.ai/blog/gemma3
+
+https://github.com/deeplearning-lab-csueb/Fine-tune-Multimodal-LLM-for-CrisisMMD/blob/main/Anh-New/GPT-Fewshot-Informative.ipynb
+
+what is a zero-shot
+gemma3
+
+scikit
+
+make sure ssl is better than supervised

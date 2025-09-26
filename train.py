@@ -22,13 +22,25 @@ from transformers import (
     get_linear_schedule_with_warmup,
     get_polynomial_decay_schedule_with_warmup
 )
-from transformers import AdamW, AutoModel, AutoTokenizer#,get_linear_with_warmup
+
+from torch.optim import AdamW
+from transformers import AutoModel, AutoTokenizer
+
 from torch.distributions.distribution import Distribution
 from tqdm import tqdm
 from torch.distributions import Categorical
 from itertools import cycle
 
-csv.field_size_limit(sys.maxsize)
+from datasets import load_from_disk
+
+# Pick the largest value the platform allows
+max_int = sys.maxsize
+while True:
+    try:
+        csv.field_size_limit(max_int)
+        break
+    except OverflowError:
+        max_int = int(max_int / 10)
 
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
 
@@ -72,12 +84,12 @@ args = parser.parse_args()
 print(args)
 
 
-assert args.task in ('SNLI', 'MNLI', 'QQP', 'TwitterPPDB', 'SWAG', 'HellaSWAG', 'SICK','RTE','FEVER','HANS')
+assert args.task in ('SNLI', 'MNLI', 'QQP', 'TwitterPPDB', 'SWAG', 'HellaSWAG', 'SICK','RTE','FEVER','HANS','CrisisMMDINF')
 assert args.model in ('bert-base-uncased', 'roberta-base', 'bert-large-uncased')
 
 if args.task in ('SNLI', 'MNLI','SICK','FEVER','HANS'):
     n_classes = 3
-elif args.task in ('QQP', 'TwitterPPDB','RTE'):
+elif args.task in ('QQP', 'TwitterPPDB','RTE','CrisisMMDINF'):
     n_classes = 2
 elif args.task in ('SWAG', 'HellaSWAG'):
     n_classes = 1
@@ -183,7 +195,67 @@ def encode_label(label):
 
     return cuda(torch.tensor(label)).long()
 
+class CrisisMMDINFProcessor:
+    """
+    Loads CrisisMMD informative classification from a Hugging Face
+    saved-to-disk directory (e.g., .../crisismmd2inf_dataset/train).
 
+    It emits 4-tuples that your TextDataset expects for *pair* classification:
+      (sentence1, sentence2, label_int, guid)
+    where:
+      - sentence1 = tweet_text
+      - sentence2 = event_name  <-- added per request
+      - label_int ∈ {0,1} (not_informative=0, informative=1)
+      - guid = tweet_id (fallback to image_id if missing)
+
+    NOTE: The pair gets encoded as:
+      [CLS] sentence1 [SEP] sentence2 [SEP]
+    which your encode_pair_inputs() already implements. No other code changes needed.
+    """
+
+    def __init__(self, label_field="label_text"):
+        # Prefer text-only supervision for a text model; change to "label_text_image"
+        # if you want the joint (text+image) supervision target instead.
+        self.label_field = label_field
+        # Map string labels -> ints. If your stored labels are already ints, we’ll cast below.
+        self.label_map = {"not_informative": 0, "informative": 1}
+
+    def valid_inputs(self, s1, s2, label):
+        # s1 must exist and label must be 0/1; s2 (event) can be empty string if missing.
+        return (s1 is not None) and (len(s1) > 0) and (label in (0, 1))
+
+    def _to_int_label(self, raw):
+        # Accept ints (0/1) or strings ("informative"/"not_informative")
+        if isinstance(raw, (int, float)) and int(raw) in (0, 1):
+            return int(raw)
+        return self.label_map.get(str(raw))
+
+    def load_samples(self, path):
+        # `path` points to a split folder produced by Dataset.save_to_disk()
+        ds = load_from_disk(path)
+
+        samples = []
+        for ex in ds:
+            # sentence1: tweet text
+            s1 = ex.get("tweet_text")
+
+            # sentence2: event context (can be "")
+            s2 = ex.get("event_name") or ""
+
+            # choose label source (prefer text-only; fallback to overall label)
+            raw_label = ex.get(self.label_field)
+            if raw_label is None:
+                raw_label = ex.get("label")
+
+            label = self._to_int_label(raw_label)
+
+            # stable-ish ID for debugging/traceability
+            guid = ex.get("tweet_id", [])
+
+            if self.valid_inputs(s1, s2, label):
+                samples.append((s1, s2, label, guid))
+
+        return samples
 
 class FEVERProcessor:
     """Data loader for QQP."""
@@ -552,7 +624,7 @@ class TextDataset(Dataset):
         res = self.cache.get(i, None)
         if res is None:
             sample = self.samples[i]
-            if args.task in ('SNLI', 'MNLI', 'QQP', 'MRPC', 'TwitterPPDB','SICK','RTE','FEVER','HANS'): # and not self.unlabeled:
+            if args.task in ('SNLI', 'MNLI', 'QQP', 'MRPC', 'TwitterPPDB','SICK','RTE','FEVER','HANS','CrisisMMDINF'): # and not self.unlabeled:
                 sentence1, sentence2, label, guid = sample
                 input_ids, segment_ids, attention_mask = encode_pair_inputs(
                     sentence1, sentence2
@@ -675,7 +747,7 @@ def train(d1,d2=None,aug=None,epoch=0):
             discard_count = 0 
             smoothing_val = 0.3
 
-            if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP'):
+            if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','CrisisMMDINF'):
                 output1 = model(inputs1[0],inputs1[1],inputs1[2], unlabeled = False)[0]
                 output2 = model(inputs2[0],inputs2[1],inputs2[2], unlabeled = True)[0]
                 #logits1 = model.classifier(output1[:,0])
@@ -914,7 +986,7 @@ def evaluate(dataset):
             inputs, labels = dataset
             output = model(inputs[0],inputs[1],inputs[2])
             if args.ssl:
-                if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','HANS'):
+                if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','HANS','CrisisMMDINF'):
                     if args.multigpus:
                         output = model.module.classifier(output[0][:,0])
                     else:
@@ -1008,7 +1080,7 @@ if args.do_evaluate:
                 #if args.consistency_learning or args.noisy_label:
                 if args.ssl:
                     output = model(inputs[0],inputs[1],inputs[2])
-                    if args.task in ('SNLI','MNLI','SICK','RTE'):
+                    if args.task in ('SNLI','MNLI','SICK','RTE','CrisisMMDINF'):
                         if args.multigpus:
                             logits = model.module.classifier(output[0][:,0])
                         else:
@@ -1060,7 +1132,7 @@ if args.do_evaluate:
                 #if args.consistency_learning or args.noisy_label:
                 if args.ssl:
                     output = model(inputs[0],inputs[1],inputs[2])
-                    if args.task in ('SNLI','MNLI','SICK','RTE'):
+                    if args.task in ('SNLI','MNLI','SICK','RTE','CrisisMMDINF'):
 
                         if args.multigpus:
                             logits = model.module.classifier(output[0][:,0])
@@ -1114,7 +1186,7 @@ if args.do_evaluate:
         with torch.no_grad():
             if args.ssl:
                 output = model(inputs[0],inputs[1],inputs[2])
-                if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','HANS'):
+                if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','HANS','CrisisMMDINF'):
                     if args.multigpus:
                         logits = model.module.classifier(output[0][:,0])
                     else:
