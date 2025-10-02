@@ -1202,7 +1202,7 @@ if args.do_evaluate:
                     new_logits = logits[j]
                 probs = F.softmax(new_logits, -1)
                 output_dict = {
-                    'index': args.batch_size * i + j,
+                    'id': inputs[3][j].item() if isinstance(inputs[3][j], torch.Tensor) else inputs[3][j],
                     'true': label[j].item(),
                     'pred': new_logits.argmax().item(),
                     'conf': probs.max().item(),
@@ -1217,6 +1217,15 @@ if args.do_evaluate:
         for i, output_dict in enumerate(output_dicts):
             output_dict_str = json.dumps(output_dict)
             f.write(f'{output_dict_str}\n')
+
+    csv_path = args.output_path.replace(".json", ".csv")
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["id", "gold", "pred"])
+        for output_dict in output_dicts:
+            writer.writerow([output_dict["id"], output_dict["true"], output_dict["pred"]])
+
+    print(f"[csv] wrote predictions to {csv_path}")
 
     y_true = [output_dict['true'] for output_dict in output_dicts]
     y_pred = [output_dict['pred'] for output_dict in output_dicts]
