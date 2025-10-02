@@ -1,4 +1,0 @@
-,Accuracy,Precision (Weighted),Recall (Weighted),F1 (Weighted)
-Zero-shot (GPT-5),0.7392,0.7553,0.7392,0.7443
-BERT (100 lb/cl),0.8246,0.8212,0.8246,0.8207
-VerifyMatch (100 lb/cl),0.8331,0.8302,0.8331,0.8292
