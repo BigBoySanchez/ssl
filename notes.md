@@ -143,8 +143,8 @@ If you want, paste a snippet of your `calibrate.py` flags and I’ll drop in the
 ## 09/25 Meeting
 - for input, just use tweet txt
 - try to understand bert last output
-- labeled = 200,400,600/class
-- unlabeled = rest of data, relabeled by an llm
+- labeled = 200 OR 400 OR 600/class
+- unlabeled = rest of data, relabeled by an llm... or n # of pseudo-GENERATED samples
 
 - FOLLOW DONGPING's model
 - use gemini for...
@@ -162,3 +162,15 @@ gemma3
 scikit
 
 make sure ssl is better than supervised
+
+## 10/1 TASKS:
+- cvt .arrow datasets into human-readable ones
+- DO NOT pass any data to the pseudo-generator, just schema
+
+## 10/1 meeting:
+- gpt4-o zero-shot (85% inf, 80% hum) [use gpt 5 now] vs supervised model (BERT; baseline) vs verifymatch <- test set foreach
+- get plabel, then run vmatch
+- find the best model (hyperparams)
+  - 100/class
+- get zero-shot v bert v vmatch table by friday, 11:00am (cols = f1, accuracy, precision & recall, weighted average; all in scikit learn)
+- ask about cols again

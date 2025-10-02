@@ -34,13 +34,8 @@ from itertools import cycle
 from datasets import load_from_disk
 
 # Pick the largest value the platform allows
-max_int = sys.maxsize
-while True:
-    try:
-        csv.field_size_limit(max_int)
-        break
-    except OverflowError:
-        max_int = int(max_int / 10)
+SAFE_LIMIT = 2**31 - 1  # max signed 32-bit int
+csv.field_size_limit(min(sys.maxsize, SAFE_LIMIT))
 
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
 
@@ -240,7 +235,8 @@ class CrisisMMDINFProcessor:
             s1 = ex.get("tweet_text")
 
             # sentence2: event context (can be "")
-            s2 = ex.get("event_name") or ""
+            # s2 = ex.get("event_name") or ""
+            s2 = ""
 
             # choose label source (prefer text-only; fallback to overall label)
             raw_label = ex.get(self.label_field)
@@ -731,13 +727,13 @@ def train(d1,d2=None,aug=None,epoch=0):
         folder = args.output_path.split("_")[2].replace(".json",'')
         if not os.path.exists(folder):
             os.mkdir(folder)
-        unlabeled_not_used = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_dataitself_discard_per_iter_dueToVerification_verifyMatch_bs"+str(args.batch_size)+".txt","w")
-        average_tracking = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_avgConf_verifyMatch_bs"+str(args.batch_size)+".txt","w")
-        confidence_tracking = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_Conf_verifyMatch_bs"+str(args.batch_size)+".txt","w")
+        unlabeled_not_used = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_dataitself_discard_per_iter_dueToVerification_verifyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")
+        average_tracking = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_avgConf_verifyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")
+        confidence_tracking = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_Conf_verifyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")
         
-        discard_info = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_datanumber_discard_per_iter_dueToVerification_verifyMatch_bs"+str(args.batch_size)+".txt","w")
-        low_file = open("./"+folder+"/"+args.task + "_" +str(epoch) + "_low_verfiyMatch_bs"+str(args.batch_size)+".txt","w")
-        high_file = open("./"+folder+"/"+args.task + "_" +str(epoch) + "_high_verifyMatch_bs"+str(args.batch_size)+".txt","w")
+        discard_info = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_datanumber_discard_per_iter_dueToVerification_verifyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")
+        low_file = open("./"+folder+"/"+args.task + "_" +str(epoch) + "_low_verfiyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")
+        high_file = open("./"+folder+"/"+args.task + "_" +str(epoch) + "_high_verifyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")
         for i, (dataset1, dataset2) in enumerate(zip(cycle(d1_loader),d2_loader)):
             optimizer.zero_grad()
             inputs1, labels1 = dataset1
@@ -789,7 +785,7 @@ def train(d1,d2=None,aug=None,epoch=0):
                 else:
                     logits2 = model.classifier(output2[:,0])
 
-            output1 = output1[:,0]
+            # output1 = output1[:,0]
             output2 = output2[:,0]
 
 
@@ -1071,6 +1067,7 @@ if args.do_evaluate:
     model.load_state_dict(torch.load(args.ckpt_path))
     model.eval()
 
+    # b/c mnli has two test sets
     if args.task == 'MNLI':
         match_loader = tqdm(load(match_dataset,args.batch_size,False))
         mmatch_loader = tqdm(load(mismatch_dataset,args.batch_size,False))
@@ -1080,7 +1077,7 @@ if args.do_evaluate:
                 #if args.consistency_learning or args.noisy_label:
                 if args.ssl:
                     output = model(inputs[0],inputs[1],inputs[2])
-                    if args.task in ('SNLI','MNLI','SICK','RTE','CrisisMMDINF'):
+                    if args.task in ('SNLI','MNLI','SICK','RTE'):
                         if args.multigpus:
                             logits = model.module.classifier(output[0][:,0])
                         else:
@@ -1198,6 +1195,7 @@ if args.do_evaluate:
                 logits = model(inputs[0],inputs[1],inputs[2])
             
             for j in range(logits.size(0)):
+                # reduce 3-class logits to 2-class logits for HANS
                 if args.task == 'HANS':
                     new_logits = cuda(torch.tensor([logits[j][0],logits[j][1]+logits[j][2]]))
                 else:
