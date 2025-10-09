@@ -180,7 +180,38 @@ make sure ssl is better than supervised
 - humaid dataset processed and ready for label-plabel separation 
 - separate based on selected, labeled examples
 - adapt vmatch/train for the dataset
-- HERE -> adapt bert for the dataset
-- install/use ncat to watch training w/o breaking anything
-- make/run a script that runs train & eval for each set
+- adapt bert for the dataset
+- (optional; for easier, more reliable training later) install/use ncat to watch training w/o breaking anything
+- HERE -> make/run a script that runs train & eval for each set
 - GOAL -> make a table for humaid, ideally w/ all lb/cl sets
+
+### 🧩 Data & Experiment Pipeline
+
+1. **humaid only**
+
+   * Join all events
+   * Split into **train / dev / test**
+
+2. **labeled_data**
+
+   * Split into **[train | test]**
+   * Strip away everything → keep only inputs
+
+3. **union set**
+   * use chatgpt5 to add a label column to data
+   * join the labeled and pseudolabeled set on tweet text
+   
+
+4.  **label, plabel split**   
+    * Separate into **labeled** and **unlabeled**
+    * use **gold** & **pred** labels repsectively
+
+4. **Modeling**
+
+   * `vmatch(labeled, plabeled, dev, test)`
+   * `bert(dev, test, labeled)`
+   * `zero_shot(prompt, input-only test)`
+
+5. **Output**
+   * Generate CSV: `[id, gold, pred]`
+   * `make_table`
