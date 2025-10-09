@@ -19,6 +19,13 @@ def join_tsv(tsv1_path, tsv2_path, join_col, output_path):
     print(f"✅ Joined TSV saved to: {output_path}")
     print(f"Rows: {len(merged)} | Columns: {len(merged.columns)}")
 
+    # Also write to a csv in the form of id,gold,pred
+    merged.rename(columns={"tweet_id":"id", "class_label":"gold", "label":"pred"}, inplace=True)
+
+    csv_output_path = output_path.replace(".tsv", ".csv")
+    merged.to_csv(csv_output_path, columns=["id", "gold", "pred"], index=False)
+    print(f"✅ CSV saved to: {csv_output_path}")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Join two TSV files based on a common column.")
     parser.add_argument("--tsv1", required=True, help="Path to the first TSV file")
