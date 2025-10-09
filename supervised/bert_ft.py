@@ -43,6 +43,11 @@ def main():
     random.seed(args.seed); np.random.seed(args.seed)
     torch.manual_seed(args.seed); torch.cuda.manual_seed_all(args.seed)
 
+    # --- Verify GPU ---
+    if not torch.cuda.is_available():
+        print("No GPU detected; exiting.")
+        return
+
     dsd_raw = load_from_disk(args.dataset_path)
     assert all(s in dsd_raw for s in ["dev","test"]), "need dev/test splits on disk"
 
@@ -116,7 +121,7 @@ def main():
 
         trainer.save_model(f"{args.output_dir}/trial_lr{lr}_ep{ep}_bs{bs}")
 
-    cfg_str = f"[best] cfg={best_cfg} {args.selection_metric}={best_score:.4f}"
+    cfg_str = f"[best] cfg={best_cfg} {args.selection_metric}={best_score:.4f} seed={args.seed}"
     print(cfg_str)
     with open(os.path.join(args.output_dir, "best_cfg.txt"), "w", encoding="utf-8") as f:
         f.write(cfg_str + "\n")

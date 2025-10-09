@@ -31,7 +31,8 @@ from tqdm import tqdm
 from torch.distributions import Categorical
 from itertools import cycle
 
-from datasets import load_from_disk
+from datasets import load_from_disk, load_dataset
+import time
 
 # Pick the largest value the platform allows
 SAFE_LIMIT = 2**31 - 1  # max signed 32-bit int
@@ -68,7 +69,7 @@ parser.add_argument('--same_domain_unlabeled',action='store_true')
 parser.add_argument('--th', type=float, default=0.7)
 parser.add_argument('--sharpening',action='store_true',default=True)
 parser.add_argument('--T',type=float,default=0.1)
-parser.add_argument('--seed',type=int,default=0)
+parser.add_argument('--seed',type=int,default=int(time.time()))
 parser.add_argument('--rand_mixup',action='store_true')
 parser.add_argument('--mixup_loss_weight',type=float, default=1.)
 parser.add_argument('--consistency',action='store_true')
@@ -79,16 +80,16 @@ args = parser.parse_args()
 print(args)
 
 
-assert args.task in ('SNLI', 'MNLI', 'QQP', 'TwitterPPDB', 'SWAG', 'HellaSWAG', 'SICK','RTE','FEVER','HANS','CrisisMMDINF')
+assert args.task in ('SNLI', 'MNLI', 'QQP', 'TwitterPPDB', 'SWAG', 'HellaSWAG', 'SICK','RTE','FEVER','HANS','CrisisMMDINF', 'HumAID')
 assert args.model in ('bert-base-uncased', 'roberta-base', 'bert-large-uncased')
-
-if args.task in ('SNLI', 'MNLI','SICK','FEVER','HANS'):
+if args.task in ('HumAID'):
+    n_classes = 10
+elif args.task in ('SNLI', 'MNLI','SICK','FEVER','HANS'):
     n_classes = 3
 elif args.task in ('QQP', 'TwitterPPDB','RTE','CrisisMMDINF'):
     n_classes = 2
 elif args.task in ('SWAG', 'HellaSWAG'):
     n_classes = 1
-
 
 def cuda(tensor):
     """Places tensor on CUDA device."""
@@ -189,6 +190,36 @@ def encode_label(label):
     """Wraps label in tensor."""
 
     return cuda(torch.tensor(label)).long()
+
+class HumAIDProcessor:
+    """Data loader for HumAID."""
+
+    def __init__(self):
+        self.label_map = {'not_humanitarian': 0, 'requests_or_urgent_needs': 1, 
+                          'rescue_volunteering_or_donation_effort': 2, 'infrastructure_and_utility_damage': 3, 
+                          'missing_or_found_people': 4, 'displaced_people_and_evacuations': 5, 
+                          'sympathy_and_support': 6, 'injured_or_dead_people': 7, 
+                          'caution_and_advice': 8, 'other_relevant_information': 9}
+
+    def valid_inputs(self, sentence1, label):
+        return len(sentence1) > 0 and label in self.label_map
+
+    def load_samples(self, path):
+        samples = []
+        ds = load_dataset("csv", data_files=path, split="train", delimiter="\t")
+
+        for ex in ds:
+            try:
+                guid = ex["tweet_id"]
+                sentence1 = ex["tweet_text"]
+                label = ex["label"]
+                if self.valid_inputs(sentence1, label):
+                    label = int(self.label_map[label])
+                    samples.append((sentence1, "", label, guid))
+            except:
+                pass
+
+        return samples
 
 class CrisisMMDINFProcessor:
     """
@@ -620,7 +651,7 @@ class TextDataset(Dataset):
         res = self.cache.get(i, None)
         if res is None:
             sample = self.samples[i]
-            if args.task in ('SNLI', 'MNLI', 'QQP', 'MRPC', 'TwitterPPDB','SICK','RTE','FEVER','HANS','CrisisMMDINF'): # and not self.unlabeled:
+            if args.task in ('SNLI', 'MNLI', 'QQP', 'MRPC', 'TwitterPPDB','SICK','RTE','FEVER','HANS','CrisisMMDINF', 'HumAID'): # and not self.unlabeled:
                 sentence1, sentence2, label, guid = sample
                 input_ids, segment_ids, attention_mask = encode_pair_inputs(
                     sentence1, sentence2
@@ -743,7 +774,7 @@ def train(d1,d2=None,aug=None,epoch=0):
             discard_count = 0 
             smoothing_val = 0.3
 
-            if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','CrisisMMDINF'):
+            if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','CrisisMMDINF', 'HumAID'):
                 output1 = model(inputs1[0],inputs1[1],inputs1[2], unlabeled = False)[0]
                 output2 = model(inputs2[0],inputs2[1],inputs2[2], unlabeled = True)[0]
                 #logits1 = model.classifier(output1[:,0])
@@ -982,7 +1013,7 @@ def evaluate(dataset):
             inputs, labels = dataset
             output = model(inputs[0],inputs[1],inputs[2])
             if args.ssl:
-                if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','HANS','CrisisMMDINF'):
+                if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','HANS','CrisisMMDINF', 'HumAID'):
                     if args.multigpus:
                         output = model.module.classifier(output[0][:,0])
                     else:
@@ -1129,7 +1160,7 @@ if args.do_evaluate:
                 #if args.consistency_learning or args.noisy_label:
                 if args.ssl:
                     output = model(inputs[0],inputs[1],inputs[2])
-                    if args.task in ('SNLI','MNLI','SICK','RTE','CrisisMMDINF'):
+                    if args.task in ('SNLI','MNLI','SICK','RTE','CrisisMMDINF', 'HumAID'):
 
                         if args.multigpus:
                             logits = model.module.classifier(output[0][:,0])
@@ -1183,7 +1214,7 @@ if args.do_evaluate:
         with torch.no_grad():
             if args.ssl:
                 output = model(inputs[0],inputs[1],inputs[2])
-                if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','HANS','CrisisMMDINF'):
+                if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','HANS','CrisisMMDINF', 'HumAID'):
                     if args.multigpus:
                         logits = model.module.classifier(output[0][:,0])
                     else:

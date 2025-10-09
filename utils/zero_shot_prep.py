@@ -38,6 +38,10 @@ def main():
     for c in (args.id_col, args.input_col, args.label_col):
         if c not in ds.column_names:
             raise ValueError(f"Column '{c}' not in dataset columns {ds.column_names}")
+    
+    # Remove duplicates based on id_col
+    df = ds.to_pandas().drop_duplicates(args.id_col)
+    ds = Dataset.from_pandas(df)
 
     # If label is a ClassLabel, convert to its string form; otherwise keep as-is
     feat = ds.features.get(args.label_col)
@@ -49,6 +53,7 @@ def main():
         ds_for_full = ds.map(label_to_str, remove_columns=[])
     else:
         ds_for_full = ds
+
 
     # Build the two views (keep original order; do not shuffle)
     cols_full = [args.id_col, args.input_col, args.label_col]

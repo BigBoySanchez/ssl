@@ -19,9 +19,9 @@ def metrics_for(csv_path):
 
 # point these at your prediction CSVs
 rows = {
-    "Zero-shot (GPT-5)":                    metrics_for("../zero-shot/pred_zero_shot.csv"),
-    "BERT (100 lb/cl)":                     metrics_for("../supervised/outputs/bert_base_uncased/pred_bert.csv"),
-    "VerifyMatch (100 lb/cl)":           metrics_for("../verifymatch/crisismmdinf_10_2.csv"),
+    "Zero-shot (GPT-5)":                metrics_for(r"..\zero-shot\pred_zero_shot_10_8.csv"),
+    "BERT (100 lb/cl)":                 metrics_for(r"..\supervised\pred_bert.csv"),
+    "VerifyMatch (100 lb/cl)":          metrics_for(r"..\verifymatch\crisismmdinf_10_8_2.csv"),
 }
 
 table = pd.DataFrame(rows).T.round(4)

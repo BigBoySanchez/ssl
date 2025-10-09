@@ -24,8 +24,8 @@ def vmatch_separator():
 
     n = args.n
     union_path = args.union_path
-    labeled_path = args.labeled_path or "./labeled_jsonl"
-    unlabeled_path = args.unlabeled_path or "./unlabeled_jsonl"
+    labeled_path = args.labeled_path or "./labeled"
+    unlabeled_path = args.unlabeled_path or "./unlabeled"
     gold_col = args.gold_col
     pred_col = args.pred_col
     seed = args.seed
@@ -101,14 +101,19 @@ def vmatch_separator():
     else:
         unlabeled = Dataset.from_dict({c: [] for c in ds.column_names})  # empty
 
-    # 6) (Optional) Add a helper flag so downstream code can distinguish
-    # NOTE: Keeping both gold and pred columns as-is (HF-only). Downstream can ignore gold for unlabeled.
-    labeled = labeled.add_column("is_labeled", [True] * len(labeled))
-    unlabeled = unlabeled.add_column("is_labeled", [False] * len(unlabeled))
+    # 6) Drop the pred_col from labeled and update the remaining label column
+    labeled = labeled.remove_columns([pred_col])
+    if gold_col != "label":
+        labeled = labeled.rename_column(gold_col, "label")
 
-    # 7) Print distributions for sanity
+    # 7) Drop the gold_col from unlabeled and update the remaining label column
+    unlabeled = unlabeled.remove_columns([gold_col])
+    if pred_col != "label":
+        unlabeled = unlabeled.rename_column(pred_col, "label")  # standardize to 'label'
+
+    # 8) Print distributions for sanity
     def dist(d):
-        cnt = Counter(d[gold_col]) if len(d) else Counter()
+        cnt = Counter(d["label"]) if len(d) else Counter()
         return {k: cnt.get(k, 0) for k in classes}
 
     print("\n[info] Labeled split stats:")
@@ -116,7 +121,7 @@ def vmatch_separator():
     print("[info] Unlabeled split stats:")
     print(f"  rows={len(unlabeled)}  (gold kept for reference; downstream can ignore)")
 
-    # 8) Save with save_to_disk (Arrow directory format)
+    # 9) Save with save_to_disk (Arrow directory format)
     for out_dir in (labeled_path, unlabeled_path):
         os.makedirs(out_dir, exist_ok=True)
 
@@ -126,10 +131,10 @@ def vmatch_separator():
     print(f"\n[write] Labeled saved:   {labeled_path} (rows={len(labeled)})")
     print(f"[write] Unlabeled saved: {unlabeled_path} (rows={len(unlabeled)})")
 
-    # 9) Extra: quick recap of how many per class were requested vs. kept
+    # 10) Extra: quick recap of how many per class were requested vs. kept
     kept_per_class = defaultdict(int)
     if len(labeled):
-        for v in labeled[gold_col]:
+        for v in labeled["label"]:
             kept_per_class[v] += 1
     print("\n[recap] Requested per-class n =", n)
     for cls in classes:
