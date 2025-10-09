@@ -1,8 +1,8 @@
 # optuna_sweep.py
 import optuna, subprocess, sys, re, os, datetime, pathlib
 
-LABELED   = r"..\data\crisismmd2inf\plabel\train\labeled_jsonl"
-UNLABELED = r"..\data\crisismmd2inf\plabel\train\unlabeled_jsonl"
+LABELED   = r"..\data\crisismmd2inf\plabel\train\labeled"
+UNLABELED = r"..\data\crisismmd2inf\plabel\train\unlabeled"
 DEV_PATH  = r"..\data\crisismmd2inf\raw\dev"
 TEST_PATH = r"..\data\crisismmd2inf\raw\test"
 

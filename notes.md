@@ -174,3 +174,13 @@ make sure ssl is better than supervised
   - 100/class
 - get zero-shot v bert v vmatch table by friday, 11:00am (cols = f1, accuracy, precision & recall, weighted average; all in scikit learn)
 - ask about cols again
+
+## 10/9
+
+- humaid dataset processed and ready for label-plabel separation 
+- separate based on selected, labeled examples
+- adapt vmatch/train for the dataset
+- HERE -> adapt bert for the dataset
+- install/use ncat to watch training w/o breaking anything
+- make/run a script that runs train & eval for each set
+- GOAL -> make a table for humaid, ideally w/ all lb/cl sets

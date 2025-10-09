@@ -212,7 +212,7 @@ class HumAIDProcessor:
             try:
                 guid = ex["tweet_id"]
                 sentence1 = ex["tweet_text"]
-                label = ex["label"]
+                label = ex["class_label"]
                 if self.valid_inputs(sentence1, label):
                     label = int(self.label_map[label])
                     samples.append((sentence1, "", label, guid))
