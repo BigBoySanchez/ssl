@@ -1,0 +1,11 @@
+,Accuracy,Precision (Weighted),Recall (Weighted),F1 (Weighted)
+Zero-shot (GPT-5),0.4086,0.5688,0.4086,0.4317
+BERT (5 lb/cl),0.5382,0.5643,0.5382,0.5178
+BERTweet (5 lb/cl),0.5939,0.5896,0.5939,0.5589
+VerifyMatch (5 lb/cl),0.6145,0.6602,0.6145,0.6127
+BERT (10 lb/cl),0.6651,0.6833,0.6651,0.6597
+BERTweet (10 lb/cl),0.6735,0.6817,0.6735,0.6494
+VerifyMatch (10 lb/cl),0.6471,0.6744,0.6471,0.6487
+BERT (25 lb/cl),0.6878,0.6994,0.6878,0.6824
+BERTweet (25 lb/cl),0.7009,0.705,0.7009,0.6918
+VerifyMatch (25 lb/cl),0.6713,0.6797,0.6713,0.6656

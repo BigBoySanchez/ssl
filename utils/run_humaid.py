@@ -13,21 +13,24 @@ BERT_FT_SCRIPT = r"..\supervised\bert_ft.py"
 # You can define your custom args inline here later
 TRAIN_ARGS_TEMPLATE = [
     "python", TRAIN_SCRIPT,
-    "--task", "HumAID",
+    "--device", "0",
     "--model", "bert-base-uncased",
-    "--batch_size", "16",
-    "--learning_rate", "3e-5",
-    "--epochs", "5",
-    "--mixup",
-    "--mixup_loss_weight", "1",
-    "--ssl",
-    "--sharpening",
-    "--T", "0.5",
-    "--pseudo_label_by_normalized", 
+    "--task", "HumAID",
     "--dev_path", r"..\data\humaid\joined\dev.tsv",
     "--test_path", r"..\data\humaid\joined\test.tsv",
     "--do_train",
     "--do_evaluate",
+    "--ssl",
+    "--mixup",
+    "--sharpening",
+    "--epochs", "3",
+    "--batch_size", "32",
+    "--unlabeled_batch_size", "32",
+    "--learning_rate", "2e-5",
+    "--weight_decay", "0",
+    "--max_grad_norm", "1.0",
+    "--T", "0.5",
+    "--pseudo_label_by_normalized"
 ]
 
 BERT_FT_ARGS_TEMPLATE = [
@@ -35,6 +38,9 @@ BERT_FT_ARGS_TEMPLATE = [
     "--dataset_path", r"..\data\humaid\joined",
     "--label_col", "class_label",
     "--raw_format", "tsvdir",
+    "--lrs", "3e-5",
+    "epochs", "5",
+    "--batch_sizes", "16",
 ]
 
 
@@ -68,8 +74,8 @@ def main():
         train_cmd = TRAIN_ARGS_TEMPLATE + [
             fr"--labeled_train_path", fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\labeled.tsv",
             fr"--unlabeled_train_path",  fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\unlabeled.tsv",
-            fr"--ckpt_path", fr"..\artifacts\humaid\ckpt\humaid_10_10_{lbcl}_{set_num}.ckpt",
-            fr"--output_path", fr"..\artifacts\humaid\out\humaid_10_10_{lbcl}_{set_num}.json",
+            fr"--ckpt_path", fr"..\artifacts\humaid\ckpt2\humaid_10_10_{lbcl}_{set_num}.ckpt",
+            fr"--output_path", fr"..\artifacts\humaid\out2\humaid_10_10_{lbcl}_{set_num}.json",
         ]
         code = run_and_stream(train_cmd, f"train[{tag}]")
         if code != 0:
@@ -78,7 +84,7 @@ def main():
 
         # --------- Run bert_ft.py w/ bertweet ---------
         bert_cmd = BERT_FT_ARGS_TEMPLATE + [
-            fr"--output_dir", fr"..\artifacts\humaid\bertweet\humaid_bertweet_ft_{lbcl}_{set_num}",
+            fr"--output_dir", fr"..\artifacts\humaid\bertweet2\humaid_bertweet_ft_{lbcl}_{set_num}",
             fr"--train_path", fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\labeled.tsv",
             fr"--model_name", fr"vinai/bertweet-base"
         ]
@@ -89,7 +95,7 @@ def main():
         
         # --------- Run bert_ft.py w/ bert-base-uncased ---------
         bert_cmd = BERT_FT_ARGS_TEMPLATE + [
-            fr"--output_dir", fr"..\artifacts\humaid\bert\humaid_bert_ft_{lbcl}_{set_num}",
+            fr"--output_dir", fr"..\artifacts\humaid\bert2\humaid_bert_ft_{lbcl}_{set_num}",
             fr"--train_path", fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\labeled.tsv"
         ]
         code = run_and_stream(bert_cmd, f"bert[{tag}]")
