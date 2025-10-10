@@ -64,6 +64,18 @@ def main():
         tag = f"lb{lbcl}_set{set_num}"
         print(f"\n=== Running combo: {tag} ===", flush=True)
 
+        # --------- Run train.py ---------
+        train_cmd = TRAIN_ARGS_TEMPLATE + [
+            fr"--labeled_train_path", fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\labeled.tsv",
+            fr"--unlabeled_train_path",  fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\unlabeled.tsv",
+            fr"--ckpt_path", fr"..\artifacts\humaid\ckpt\humaid_10_10_{lbcl}_{set_num}.ckpt",
+            fr"--output_path", fr"..\artifacts\humaid\out\humaid_10_10_{lbcl}_{set_num}.json",
+        ]
+        code = run_and_stream(train_cmd, f"train[{tag}]")
+        if code != 0:
+            print(f"[ERROR] train.py failed for {tag} with exit code {code}", file=sys.stderr)
+            exit(code)
+
         # --------- Run bert_ft.py w/ bertweet ---------
         bert_cmd = BERT_FT_ARGS_TEMPLATE + [
             fr"--output_dir", fr"..\artifacts\humaid\bertweet\humaid_bertweet_ft_{lbcl}_{set_num}",
@@ -84,19 +96,6 @@ def main():
         if code != 0:
             print(f"[ERROR] bert_ft.py failed for {tag} with exit code {code}", file=sys.stderr)
             exit(code)
-
-        # --------- Run train.py ---------
-        train_cmd = TRAIN_ARGS_TEMPLATE + [
-            fr"--labeled_train_path", fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\labeled.tsv",
-            fr"--unlabeled_train_path",  fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\unlabeled.tsv",
-            fr"--ckpt_path", fr"..\artifacts\vmatch\humaid\ckpt\humaid_10_10_{lbcl}_{set_num}.ckpt",
-            fr"--output_path", fr"..\artifacts\vmatch\humaid\out\humaid_10_10_{lbcl}_{set_num}.json",
-        ]
-        code = run_and_stream(train_cmd, f"train[{tag}]")
-        if code != 0:
-            print(f"[ERROR] train.py failed for {tag} with exit code {code}", file=sys.stderr)
-            exit(code)
-
 
     print("\nAll combinations complete.")
 
