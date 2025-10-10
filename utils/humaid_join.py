@@ -87,12 +87,18 @@ def main():
             buckets[split].append(df)
         # (If a folder is missing a split among the first three files, we just skip that split for this event.)
 
-    # Write out concatenated TSVs
     for split in ["train", "dev", "test"]:
         if not buckets[split]:
             print(f"[INFO] No data collected for split '{split}'. Skipping write.", file=sys.stderr)
             continue
         big = pd.concat(buckets[split], ignore_index=True)
+
+        # Optional: remove duplicates
+        before = len(big)
+        big = big.drop_duplicates()
+        after = len(big)
+        print(f"[INFO] Removed {before - after} duplicate rows from '{split}'")
+
         out_fp = out_dir / f"{split}.tsv"
         big.to_csv(out_fp, sep="\t", index=False)
         print(f"[OK] Wrote {split}: {out_fp} (rows={len(big)}, cols={len(big.columns)})")

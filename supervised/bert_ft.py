@@ -1,12 +1,13 @@
-# bert_ft_refactored.py
+# bert_ft.py
 # Example:
-#   python bert_ft_refactored.py \
-#     --dataset_path data/crisismmd2inf \
-#     --output_dir outputs/bert_supervised_min \
+#   python bert_ft.py ^
+#     --dataset_path data\crisismmd2inf ^
+#     --raw_format tsvdir ^
+#     --output_dir outputs\bert_supervised_min ^
 #     --text_col tweet_text --label_col label --id_col tweet_id
 
 import argparse, os, json, itertools, time, random
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Optional
 
 import numpy as np
 import torch
@@ -28,29 +29,21 @@ def compute_metrics(eval_pred):
 
 
 # ----------------------------- Utils -----------------------------
-from datasets import load_from_disk, load_dataset, Dataset, DatasetDict
-import os
-
 def load_raw_dataset(dataset_path: str,
                      raw_format: str = "auto",
                      tsv_train: str = "train.tsv",
                      tsv_dev:   str = "dev.tsv",
                      tsv_test:  str = "test.tsv",
                      tsv_delim: str = "\t") -> DatasetDict:
-    """
-    Returns a DatasetDict with keys 'train' (if present), 'dev', 'test'.
-    Supports:
-      - HF dir saved via save_to_disk (raw_format='hf')
-      - Folder containing TSV files (raw_format='tsvdir')
-      - 'auto' tries HF first, then TSV folder.
-    """
+    """Load dataset from HF dir or TSV folder."""
     def _is_dir_with_tsvs(p):
-        return os.path.isdir(p) and \
-               any(os.path.exists(os.path.join(p, name)) for name in [tsv_train, tsv_dev, tsv_test])
+        return os.path.isdir(p) and any(
+            os.path.exists(os.path.join(p, name)) for name in [tsv_train, tsv_dev, tsv_test]
+        )
 
     def _load_hf(p):
         d = load_from_disk(p)
-        if isinstance(d, Dataset):  # single split
+        if isinstance(d, Dataset):
             return DatasetDict({"train": d})
         return d
 
@@ -64,21 +57,20 @@ def load_raw_dataset(dataset_path: str,
         if os.path.exists(fp_test):  files["test"]  = fp_test
         assert "dev" in files and "test" in files, "TSV folder must contain at least dev/test."
         ds = load_dataset("csv", data_files=files, delimiter=tsv_delim)
-        return DatasetDict({k: v for k, v in ds.items()})  # ensure DatasetDict
+        return DatasetDict({k: v for k, v in ds.items()})
 
     if raw_format == "hf":
         return _load_hf(dataset_path)
     if raw_format == "tsvdir":
         return _load_tsvdir(dataset_path)
 
-    # auto mode
     try:
         return _load_hf(dataset_path)
     except Exception:
         if _is_dir_with_tsvs(dataset_path):
             return _load_tsvdir(dataset_path)
-        raise ValueError(f"Could not load dataset from '{dataset_path}'. "
-                         f"Set --raw_format to 'hf' or 'tsvdir' and check paths.")
+        raise ValueError(f"Could not load dataset from '{dataset_path}'.")
+
 
 def set_seed(seed: int):
     random.seed(seed)
@@ -89,9 +81,7 @@ def set_seed(seed: int):
 
 
 def infer_labels(ds: Dataset, label_col: str) -> List[str]:
-    # preserve stable order by sorting stringified labels
     labs = sorted(set(ds[label_col]))
-    # turn into str to be robust (e.g., labels 0/1 or "not_informative"/"informative")
     return [str(x) for x in labs]
 
 
@@ -103,27 +93,22 @@ def build_label_maps(label_order: Optional[List[str]], train_like: Dataset, labe
     return label_order, label2id, id2label
 
 
-def tokenize_with_labels(ds: Dataset, tok, text_col: str, label_col: str, label2id: Dict[str, int]) -> Dataset:
-    def add_label(ex):  # robust if label is not string
+# ---------- CHANGE #2 ONLY: enforce safe max_length truncation ----------
+def tokenize_with_labels(ds: Dataset, tok, text_col: str, label_col: str,
+                         label2id: Dict[str, int], max_length: int) -> Dataset:
+    def add_label(ex):
         return {"labels": label2id[str(ex[label_col])]}
     ds = ds.map(add_label)
-    ds = ds.map(lambda b: tok(b[text_col], truncation=True), batched=True)
-    # Some models (e.g., RoBERTa) don't use token_type_ids; drop if missing
-    keep = {"input_ids", "attention_mask", "labels"}
-    if "token_type_ids" in ds.column_names:
-        keep.add("token_type_ids")
+    ds = ds.map(lambda b: tok(b[text_col], truncation=True, max_length=max_length), batched=True)
+
+    # Always keep input_ids, attention_mask, labels, and token_type_ids (if any)
+    keep = {"input_ids", "attention_mask", "token_type_ids", "labels"}
     drop = [c for c in ds.column_names if c not in keep]
     return ds.remove_columns(drop)
 
 
 def load_train_dataset(train_path: Optional[str], train_hf: Optional[str], split: str) -> Dataset:
-    """
-    Priority:
-      1) --train_path (file/dir): auto-detect by extension
-      2) --train_hf (load_from_disk dir)
-    """
     if train_path:
-        # try to infer by extension; supports csv/json/jsonl
         ext = os.path.splitext(train_path)[-1].lower()
         if ext in (".csv", ".tsv"):
             sep = "\t" if ext == ".tsv" else ","
@@ -131,7 +116,6 @@ def load_train_dataset(train_path: Optional[str], train_hf: Optional[str], split
         elif ext in (".json", ".jsonl"):
             return load_dataset("json", data_files=train_path, split="train")
         else:
-            # If it's a directory with HF arrow, this will raise; caller can fall back
             try:
                 dsd = load_from_disk(train_path)
                 return dsd[split] if isinstance(dsd, DatasetDict) else dsd
@@ -140,61 +124,53 @@ def load_train_dataset(train_path: Optional[str], train_hf: Optional[str], split
     if train_hf:
         dsd = load_from_disk(train_hf)
         return dsd[split] if isinstance(dsd, DatasetDict) else dsd
-    raise ValueError("You must provide either --train_path or --train_hf (or rely on dataset_path train split).")
-
-
-def select_columns_safe(ds: Dataset, cols: List[str]) -> Dataset:
-    keep = [c for c in cols if c in ds.column_names]
-    return ds.select_columns(keep)
+    raise ValueError("Provide --train_path or --train_hf (or rely on dataset_path train split).")
 
 
 # ----------------------------- Main -----------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dataset_path", required=True, help="HF dataset saved with save_to_disk (expects dev & test).")
+    ap.add_argument("--dataset_path", required=True)
     ap.add_argument("--output_dir", required=True)
-    # Train source options:
-    ap.add_argument("--train_path", help="Optional local file/dir for train (csv/tsv/json/jsonl or HF dir).")
-    ap.add_argument("--train_hf", help="Optional HF dataset dir (load_from_disk) to use as train.")
+    ap.add_argument("--train_path")
+    ap.add_argument("--train_hf")
     ap.add_argument("--train_split_name", default="train")
     ap.add_argument("--dev_split_name", default="dev")
     ap.add_argument("--test_split_name", default="test")
-    # Additional raw data options (if using dataset_path as HF dir or TSV dir)
     ap.add_argument("--raw_format", choices=["auto","hf","tsvdir"], default="auto")
     ap.add_argument("--tsv_train", default="train.tsv")
-    ap.add_argument("--tsv_dev",   default="dev.tsv")
-    ap.add_argument("--tsv_test",  default="test.tsv")
+    ap.add_argument("--tsv_dev", default="dev.tsv")
+    ap.add_argument("--tsv_test", default="test.tsv")
     ap.add_argument("--tsv_delim", default="\t")
 
-
-    # Columns
     ap.add_argument("--text_col", default="tweet_text")
     ap.add_argument("--label_col", default="label")
     ap.add_argument("--id_col", default="tweet_id")
 
-    # Labels
-    ap.add_argument("--label_order", nargs="*", help="Optional explicit label order, e.g. --label_order not_informative informative")
-
-    # Model / training
+    ap.add_argument("--label_order", nargs="*")
     ap.add_argument("--model_name", default="bert-base-uncased")
     ap.add_argument("--lrs", nargs="*", type=float, default=[2e-5, 3e-5])
     ap.add_argument("--epochs", nargs="*", type=int, default=[3, 5])
     ap.add_argument("--batch_sizes", nargs="*", type=int, default=[16, 32])
     ap.add_argument("--selection_metric", choices=["f1", "accuracy"], default="f1")
     ap.add_argument("--seed", type=int, default=int(time.time()))
-    ap.add_argument("--allow_cpu", action="store_true", help="Allow running without GPU (slower).")
-    ap.add_argument("--max_train_samples", type=int, help="Optional cap on training samples for quick trials.")
+    ap.add_argument("--allow_cpu", action="store_true")
+    ap.add_argument("--max_train_samples", type=int)
+
+    # CHANGE #2: allow overriding max_length
+    ap.add_argument("--max_length", type=int, default=0,
+                    help="If >0, cap sequence length to this; else auto = min(512, model_max-2).")
 
     args = ap.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
     set_seed(args.seed)
 
-    # ---------------- GPU check ----------------
+    # GPU check
     if not torch.cuda.is_available() and not args.allow_cpu:
         print("No GPU detected. Use --allow_cpu to run on CPU.")
         return
 
-    # ---------------- Load base dataset (dev/test required) ----------------
+    # Load data
     dsd_raw = load_raw_dataset(
         args.dataset_path,
         raw_format=args.raw_format,
@@ -202,42 +178,42 @@ def main():
         tsv_delim=args.tsv_delim,
     )
     assert "dev" in dsd_raw and "test" in dsd_raw, "need dev/test splits"
-
     dev_raw = dsd_raw[args.dev_split_name]
     test_raw = dsd_raw[args.test_split_name]
 
-    # Train priority: explicit path → explicit HF dir → dataset_path's train split
     if args.train_path or args.train_hf:
         train_raw = load_train_dataset(args.train_path, args.train_hf, args.train_split_name)
     else:
-        assert args.train_split_name in dsd_raw, "No train split and no train source provided."
+        assert args.train_split_name in dsd_raw
         train_raw = dsd_raw[args.train_split_name]
 
-    print("[debug] columns:", train_raw.column_names)
-
-    # Optional: cap train for quick experiments
     if args.max_train_samples and len(train_raw) > args.max_train_samples:
         train_raw = train_raw.shuffle(seed=args.seed).select(range(args.max_train_samples))
 
-    # ---------------- Build labels/maps ----------------
     label_order, label2id, id2label = build_label_maps(args.label_order, dev_raw, args.label_col)
     with open(os.path.join(args.output_dir, "label_map.json"), "w", encoding="utf-8") as f:
         json.dump({"label_order": label_order, "label2id": label2id, "id2label": {str(k): v for k, v in id2label.items()}},
                   f, ensure_ascii=False, indent=2)
 
-    # ---------------- Tokenizer & tokenization ----------------
-    tok = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
-    train_ds = tokenize_with_labels(train_raw, tok, args.text_col, args.label_col, label2id)
-    dev_ds   = tokenize_with_labels(dev_raw,   tok, args.text_col, args.label_col, label2id)
-    test_ds  = tokenize_with_labels(test_raw,  tok, args.text_col, args.label_col, label2id)
+    # Tokenizer & tokenization
+    tok = AutoTokenizer.from_pretrained(args.model_name, use_fast=False)
+    _tmp_model = AutoModelForSequenceClassification.from_pretrained(
+        args.model_name, num_labels=len(label2id), id2label=id2label, label2id=label2id
+    )
+    model_max = int(getattr(_tmp_model.config, "max_position_embeddings", 512))
+    del _tmp_model
+    safe_max_length = int(args.max_length) if args.max_length > 0 else min(512, model_max - 2)
+
+    train_ds = tokenize_with_labels(train_raw, tok, args.text_col, args.label_col, label2id, safe_max_length)
+    dev_ds   = tokenize_with_labels(dev_raw, tok, args.text_col, args.label_col, label2id, safe_max_length)
+    test_ds  = tokenize_with_labels(test_raw, tok, args.text_col, args.label_col, label2id, safe_max_length)
     collator = DataCollatorWithPadding(tokenizer=tok)
 
-    # ---------------- Keep original ids/golds for output ----------------
-    test_ids   = test_raw[args.id_col] if args.id_col in test_raw.column_names else list(range(len(test_raw)))
+    test_ids = test_raw[args.id_col] if args.id_col in test_raw.column_names else list(range(len(test_raw)))
     test_gold_names = [str(x) for x in test_raw[args.label_col]]
-    test_gold_ids   = [label2id[name] for name in test_gold_names]
+    test_gold_ids = [label2id[name] for name in test_gold_names]
 
-    # ---------------- Grid search on dev ----------------
+    # Grid search
     best_cfg, best_score = None, -1.0
     summary_rows = []
     for lr, ep, bs in itertools.product(args.lrs, args.epochs, args.batch_sizes):
@@ -263,11 +239,8 @@ def main():
         summary_rows.append({"lr": lr, "epochs": ep, "batch_size": bs, **eval_out})
         if score > best_score:
             best_score, best_cfg = score, (lr, ep, bs)
-
-        # Save each trained trial (so you can inspect later)
         trainer.save_model(f"{args.output_dir}/trial_lr{lr}_ep{ep}_bs{bs}")
 
-    # Write grid summary
     with open(os.path.join(args.output_dir, "grid_eval_summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary_rows, f, ensure_ascii=False, indent=2)
 
@@ -276,7 +249,7 @@ def main():
     with open(os.path.join(args.output_dir, "best_cfg.txt"), "w", encoding="utf-8") as f:
         f.write(cfg_str + "\n")
 
-    # ---------------- Retrain best on train, predict test ----------------
+    # Retrain best & predict
     lr, ep, bs = best_cfg
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model_name, num_labels=len(label2id), id2label=id2label, label2id=label2id
@@ -295,7 +268,6 @@ def main():
     test_pred_ids = np.argmax(test_pred_logits, axis=-1)
     test_pred_names = [str(id2label[int(p)]) for p in test_pred_ids]
 
-    # Write ints
     csv_int = os.path.join(args.output_dir, "pred_bert_int.csv")
     with open(csv_int, "w", encoding="utf-8", newline="") as f:
         import csv
@@ -304,7 +276,6 @@ def main():
         for _id, g, p in zip(test_ids, test_gold_ids, test_pred_ids):
             w.writerow([_id, int(g), int(p)])
 
-    # Write names (handy for quick inspection)
     csv_str = os.path.join(args.output_dir, "pred_bert_str.csv")
     with open(csv_str, "w", encoding="utf-8", newline="") as f:
         import csv

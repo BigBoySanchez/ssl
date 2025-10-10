@@ -122,6 +122,47 @@ def adamw_params(model):
     return params
 
 
+def encode_single_inputs(sentence):
+    """
+    Encodes a single-sentence input for pre-trained models using the template
+    [CLS] sentence [SEP].
+    Returns input_ids, segment_ids, and attention_mask — same format and dtype
+    as encode_pair_inputs().
+    """
+    inputs = tokenizer.encode_plus(
+        sentence,
+        add_special_tokens=True,
+        max_length=args.max_seq_length,
+        truncation=True
+    )
+
+    input_ids = inputs['input_ids']
+
+    # Use segment IDs only if BERT-type model (same logic as pair encoding)
+    if args.model in ('bert-base-uncased', 'bert-large-uncased'):
+        segment_ids = inputs['token_type_ids']
+    else:
+        segment_ids = [0] * len(input_ids)
+
+    attention_mask = [1] * len(input_ids)
+    padding_length = args.max_seq_length - len(input_ids)
+
+    # Apply same padding logic
+    input_ids += [tokenizer.pad_token_id] * padding_length
+    segment_ids += [0] * padding_length
+    attention_mask += [0] * padding_length
+
+    # Sanity check (same as pair version)
+    for input_elem in (input_ids, segment_ids, attention_mask):
+        assert len(input_elem) == args.max_seq_length
+
+    return (
+        cuda(torch.tensor(input_ids)).long(),
+        cuda(torch.tensor(segment_ids)).long(),
+        cuda(torch.tensor(attention_mask)).long(),
+    )
+
+
 def encode_pair_inputs(sentence1, sentence2):
     """
     Encodes pair inputs for pre-trained models using the template
@@ -215,7 +256,7 @@ class HumAIDProcessor:
                 label = ex["class_label"]
                 if self.valid_inputs(sentence1, label):
                     label = int(self.label_map[label])
-                    samples.append((sentence1, "", label, guid))
+                    samples.append((sentence1, label, guid))
             except:
                 pass
 
@@ -246,7 +287,7 @@ class CrisisMMDINFProcessor:
         # Map string labels -> ints. If your stored labels are already ints, we’ll cast below.
         self.label_map = {"not_informative": 0, "informative": 1}
 
-    def valid_inputs(self, s1, s2, label):
+    def valid_inputs(self, s1, label):
         # s1 must exist and label must be 0/1; s2 (event) can be empty string if missing.
         return (s1 is not None) and (len(s1) > 0) and (label in (0, 1))
 
@@ -265,9 +306,9 @@ class CrisisMMDINFProcessor:
             # sentence1: tweet text
             s1 = ex.get("tweet_text")
 
-            # sentence2: event context (can be "")
-            # s2 = ex.get("event_name") or ""
-            s2 = ""
+            # # sentence2: event context (can be "")
+            # # s2 = ex.get("event_name") or ""
+            # s2 = ""
 
             # choose label source (prefer text-only; fallback to overall label)
             raw_label = ex.get(self.label_field)
@@ -279,8 +320,8 @@ class CrisisMMDINFProcessor:
             # stable-ish ID for debugging/traceability
             guid = ex.get("tweet_id", [])
 
-            if self.valid_inputs(s1, s2, label):
-                samples.append((s1, s2, label, guid))
+            if self.valid_inputs(s1, label):
+                samples.append((s1, label, guid))
 
         return samples
 
@@ -647,30 +688,65 @@ class TextDataset(Dataset):
     def __len__(self):
         return len(self.samples)
 
+    # def __getitem__(self, i):
+    #     res = self.cache.get(i, None)
+    #     if res is None:
+    #         sample = self.samples[i]
+    #         if args.task in ('SNLI', 'MNLI', 'QQP', 'MRPC', 'TwitterPPDB','SICK','RTE','FEVER','HANS','CrisisMMDINF', 'HumAID'): # and not self.unlabeled:
+    #             sentence1, sentence2, label, guid = sample
+    #             input_ids, segment_ids, attention_mask = encode_pair_inputs(
+    #                 sentence1, sentence2
+    #             )
+    #             label_id = encode_label(label)
+    #             res = ((input_ids, segment_ids, attention_mask, guid, [sentence1+' [SEP] ' +sentence2]), label_id)
+    #         elif args.task in ('SWAG', 'HellaSWAG'):
+    #             if self.unlabeled:
+    #                 context, ending_start, endings = sample
+    #                 guid = -1
+    #             else:
+    #                 context, ending_start, endings, label, guid = sample
+    #             input_ids, segment_ids, attention_mask = encode_mc_inputs(
+    #                 context, ending_start, endings
+    #             )
+    #             label_id = encode_label(label)
+    #             res = ((input_ids, segment_ids, attention_mask, guid), label_id)
+    #         self.cache[i] = res
+    #     return res
+
     def __getitem__(self, i):
         res = self.cache.get(i, None)
         if res is None:
             sample = self.samples[i]
-            if args.task in ('SNLI', 'MNLI', 'QQP', 'MRPC', 'TwitterPPDB','SICK','RTE','FEVER','HANS','CrisisMMDINF', 'HumAID'): # and not self.unlabeled:
+
+            if args.task in ('SNLI','MNLI','QQP','MRPC','TwitterPPDB','SICK','RTE','FEVER','HANS'):
                 sentence1, sentence2, label, guid = sample
-                input_ids, segment_ids, attention_mask = encode_pair_inputs(
-                    sentence1, sentence2
-                )
+                input_ids, segment_ids, attention_mask = encode_pair_inputs(sentence1, sentence2)
                 label_id = encode_label(label)
-                res = ((input_ids, segment_ids, attention_mask, guid, [sentence1+' [SEP] ' +sentence2]), label_id)
+                res = ((input_ids, segment_ids, attention_mask, guid, [sentence1 + ' [SEP] ' + sentence2]), label_id)
+
+            elif args.task in ('CrisisMMDINF', 'HumAID'):
+                # single-sentence case
+                # expected sample format: (text, label, guid)
+                # if your sample layout differs, adjust the unpacking accordingly
+                text, label, guid = sample
+                input_ids, segment_ids, attention_mask = encode_single_inputs(text)
+                label_id = encode_label(label)
+                res = ((input_ids, segment_ids, attention_mask, guid, [text]), label_id)
+
             elif args.task in ('SWAG', 'HellaSWAG'):
                 if self.unlabeled:
                     context, ending_start, endings = sample
                     guid = -1
+                    label = None
                 else:
                     context, ending_start, endings, label, guid = sample
-                input_ids, segment_ids, attention_mask = encode_mc_inputs(
-                    context, ending_start, endings
-                )
+                input_ids, segment_ids, attention_mask = encode_mc_inputs(context, ending_start, endings)
                 label_id = encode_label(label)
                 res = ((input_ids, segment_ids, attention_mask, guid), label_id)
+
             self.cache[i] = res
         return res
+
 
 
 class Model(nn.Module):
@@ -816,6 +892,7 @@ def train(d1,d2=None,aug=None,epoch=0):
                 else:
                     logits2 = model.classifier(output2[:,0])
 
+            # print(output1.shape, output2.shape)
             # output1 = output1[:,0]
             output2 = output2[:,0]
 

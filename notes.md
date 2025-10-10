@@ -181,8 +181,8 @@ make sure ssl is better than supervised
 - separate based on selected, labeled examples
 - adapt vmatch/train for the dataset
 - adapt bert for the dataset
-- (optional; for easier, more reliable training later) install/use ncat to watch training w/o breaking anything
 - HERE -> make/run a script that runs train & eval for each set
+- (optional; for easier, more reliable training later) install/use ncat to watch training w/o breaking anything
 - GOAL -> make a table for humaid, ideally w/ all lb/cl sets
 
 ### 🧩 Data & Experiment Pipeline
@@ -215,3 +215,17 @@ make sure ssl is better than supervised
 5. **Output**
    * Generate CSV: `[id, gold, pred]`
    * `make_table`
+
+## 10/9 NOTES
+- cornelia got crisismmd
+- focus on humaid
+- for text, gpt 4mini is best
+
+- run for 5lb all sets, ideally all labels all sets, then avg
+- use both bert and bertweet
+
+https://github.com/deeplearning-lab-csueb/Fine-tune-Multimodal-LLM-for-CrisisMMD/blob/main/ASONAM2025%20(2).pdf
+
+joined row count = split row count on paper + num labeled rows
+bertweet expects user + twt link, but opting to leave it out
+hf automatically sets train models to eval when running pred
