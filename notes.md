@@ -1,3 +1,14 @@
+# 10/10 Meeting
+## Task
+- focus on crisismmd + humaid
+- finish vmatch on humaid
+- for humaid, run for each disaster
+- check out the google sheet prof made
+- humaid priority
+- read co-training paper (if possible)
+- calculate ece (if possible)
+- save prediction probability
+
 # 9/25 Prep
 
 ## GOAL
