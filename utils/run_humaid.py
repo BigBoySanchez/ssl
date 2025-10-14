@@ -6,7 +6,7 @@ import pandas as pd
 
 # Configurable params
 LB_PER_CLASS = [5]
-SETS = [1]
+SETS = [1, 2, 3]
 # LB_PER_CLASS = [5, 10, 25, 50]
 # SETS = [1, 2, 3]
 
@@ -39,9 +39,11 @@ BERT_FT_ARGS_TEMPLATE = [
     "python", BERT_FT_SCRIPT,
     "--label_col", "class_label",
     "--raw_format", "tsvdir",
-    # "--lrs", "3e-5",
-    # "--epochs", "5",
-    # "--batch_sizes", "16",
+    "--lrs", "5e-5",
+    "--epochs", "3",
+    "--batch_sizes", "16",
+    "--max_length", "128",
+    "--seed", "42",
 ]
 
 
@@ -148,7 +150,7 @@ def main():
     EVENTS = ["california_wildfires_2018"]
 
     for event, lbcl, set_num in itertools.product(EVENTS, LB_PER_CLASS, SETS):
-        tag = f"lb{lbcl}_set{set_num}"
+        tag = f"{event}_lb{lbcl}_set{set_num}"
         print(f"\n=== Running combo: {tag} ===", flush=True)
 
         dev_path = separate_event(event, r"..\data\humaid\joined\dev.tsv", "dev")
@@ -173,7 +175,7 @@ def main():
 
         # --------- Run bert_ft.py w/ bertweet ---------
         bert_cmd = BERT_FT_ARGS_TEMPLATE + [
-            fr"--output_dir", fr"..\artifacts\humaid\bertweet3\humaid_bertweet_ft_{lbcl}_{set_num}",
+            fr"--output_dir", fr"..\artifacts\humaid\bertweet3\humaid_bertweet_ft_{event}_{lbcl}_{set_num}",
             fr"--train_path", train_labeled_path,
             fr"--dataset_path", joined_path,
             fr"--model_name", fr"vinai/bertweet-base",
@@ -185,7 +187,7 @@ def main():
         
         # --------- Run bert_ft.py w/ bert-base-uncased ---------
         bert_cmd = BERT_FT_ARGS_TEMPLATE + [
-            fr"--output_dir", fr"..\artifacts\humaid\bert3\humaid_bert_ft_{lbcl}_{set_num}",
+            fr"--output_dir", fr"..\artifacts\humaid\bert3\humaid_bert_ft_{event}_{lbcl}_{set_num}",
             fr"--train_path", train_labeled_path,
             fr"--dataset_path", joined_path,
         ]

@@ -23,7 +23,7 @@ def compute_metrics(eval_pred):
     preds = np.argmax(logits, axis=-1)
     acc = accuracy_score(labels, preds)
     prec, rec, f1, _ = precision_recall_fscore_support(
-        labels, preds, average="weighted", zero_division=0
+        labels, preds, average="macro", zero_division=0
     )
     return {"accuracy": acc, "precision": prec, "recall": rec, "f1": f1}
 
@@ -196,7 +196,11 @@ def main():
                   f, ensure_ascii=False, indent=2)
 
     # Tokenizer & tokenization
-    tok = AutoTokenizer.from_pretrained(args.model_name, use_fast=False)
+    tok = AutoTokenizer.from_pretrained(
+        args.model_name, 
+        use_fast=True,
+        normalization=True, # TODO, may help BERTweet
+    )
     _tmp_model = AutoModelForSequenceClassification.from_pretrained(
         args.model_name, num_labels=len(label2id), id2label=id2label, label2id=label2id
     )
