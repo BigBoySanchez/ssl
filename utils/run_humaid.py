@@ -5,34 +5,26 @@ import os
 import pandas as pd
 
 # Configurable params
-LB_PER_CLASS = [5]
+LB_PER_CLASS = [5, 10, 25, 50]
 SETS = [1, 2, 3]
 # LB_PER_CLASS = [5, 10, 25, 50]
 # SETS = [1, 2, 3]
 
 # Paths to your scripts
-TRAIN_SCRIPT = r"..\verifymatch\train.py"
+TRAIN_SCRIPT = r"..\verifymatch\optuna_sweep.py"
 BERT_FT_SCRIPT = r"..\supervised\bert_ft.py"
 
 # You can define your custom args inline here later
 TRAIN_ARGS_TEMPLATE = [
     "python", TRAIN_SCRIPT,
-    "--device", "0",
+    # --python...
+    "--train_py", r"..\verifymatch\train.py",
     "--model", "bert-base-uncased",
     "--task", "HumAID",
-    "--do_train",
-    "--do_evaluate",
-    "--ssl",
-    "--mixup",
-    "--sharpening",
-    "--epochs", "3",
-    "--batch_size", "32",
-    "--unlabeled_batch_size", "32",
-    "--learning_rate", "2e-5",
-    "--weight_decay", "0",
-    "--max_grad_norm", "1.0",
-    "--T", "0.5",
-    "--pseudo_label_by_normalized"
+    "--device", "0",
+    "--max_seq_length", "256",
+    "--n_trials", "3",
+    "--seed", "42",
 ]
 
 BERT_FT_ARGS_TEMPLATE = [
@@ -40,7 +32,7 @@ BERT_FT_ARGS_TEMPLATE = [
     "--label_col", "class_label",
     "--raw_format", "tsvdir",
     "--lrs", "5e-5",
-    "--epochs", "3",
+    "--epochs", "18",
     "--batch_sizes", "16",
     "--max_length", "128",
     "--seed", "42",
@@ -86,7 +78,7 @@ def separate_event(event, tsv_file, outfile_name):
     os.makedirs("temp", exist_ok=True)
 
     # Build output path safely
-    output_path = os.path.join("temp", f"{event}_{outfile_name}.tsv")
+    output_path = os.path.join("temp", f"{outfile_name}.tsv")
 
     # Check if the input file exists
     if not os.path.exists(tsv_file):
@@ -111,14 +103,14 @@ def separate_event(event, tsv_file, outfile_name):
 
     return output_path
 
-def separate_event_folder(tsv_folder, event, outfile_name):
+def separate_event_folder(event, tsv_folder, outfile_name):
     """
     Like separate_event but for all files in a folder.
     Returns files with the desired event in:
         ./temp/{event}_{outfile_name}/{original_filename}.tsv
     """
     # Create output folder safely
-    out_folder = os.path.join("temp", f"{event}_{outfile_name}")
+    out_folder = os.path.join("temp", f"{outfile_name}")
     os.makedirs(out_folder, exist_ok=True)
 
     # Process each split file
@@ -147,15 +139,15 @@ def separate_event_folder(tsv_folder, event, outfile_name):
 def main():
     EVENTS = get_events(r"..\data\humaid\joined")
     # TODO: ts is for testing only, remove later
-    EVENTS = ["california_wildfires_2018"]
+    # EVENTS = ["california_wildfires_2018"]
 
-    for event, lbcl, set_num in itertools.product(EVENTS, LB_PER_CLASS, SETS):
+    for lbcl, event, set_num in itertools.product(LB_PER_CLASS, EVENTS, SETS):
         tag = f"{event}_lb{lbcl}_set{set_num}"
         print(f"\n=== Running combo: {tag} ===", flush=True)
 
         dev_path = separate_event(event, r"..\data\humaid\joined\dev.tsv", "dev")
         test_path = separate_event(event, r"..\data\humaid\joined\test.tsv", "test")
-        joined_path = separate_event_folder(r"..\data\humaid\joined", event, "joined")
+        joined_path = separate_event_folder(event, r"..\data\humaid\joined", "joined")
         train_labeled_path = separate_event(event, fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\labeled.tsv", "labeled")
         train_unlabeled_path = separate_event(event, fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\unlabeled.tsv", "unlabeled")
 
@@ -163,9 +155,8 @@ def main():
         train_cmd = TRAIN_ARGS_TEMPLATE + [
             fr"--labeled_train_path", train_labeled_path,
             fr"--unlabeled_train_path", train_unlabeled_path,
-            fr"--ckpt_path", fr"..\artifacts\humaid\ckpt3\humaid_10_10_{event}_{lbcl}_{set_num}.ckpt",
-            fr"--output_path", fr"..\artifacts\humaid\out3\humaid_10_10_{event}_{lbcl}_{set_num}.json",
             fr"--dev_path", dev_path,
+            fr"--outdir", fr"..\artifacts\humaid\vmatch1\humaid_vmatch_{event}_{lbcl}_{set_num}",
             fr"--test_path", test_path,
         ]
         code = run_and_stream(train_cmd, f"train[{tag}]")
@@ -174,27 +165,38 @@ def main():
             exit(code)
 
         # --------- Run bert_ft.py w/ bertweet ---------
-        bert_cmd = BERT_FT_ARGS_TEMPLATE + [
-            fr"--output_dir", fr"..\artifacts\humaid\bertweet3\humaid_bertweet_ft_{event}_{lbcl}_{set_num}",
-            fr"--train_path", train_labeled_path,
-            fr"--dataset_path", joined_path,
-            fr"--model_name", fr"vinai/bertweet-base",
-        ]
-        code = run_and_stream(bert_cmd, f"bertweet[{tag}]")
-        if code != 0:
-            print(f"[ERROR] bert_ft.py (bertweet) failed for {tag} with exit code {code}", file=sys.stderr)
-            exit(code)
+        # bert_cmd = BERT_FT_ARGS_TEMPLATE + [
+        #     fr"--output_dir", fr"..\artifacts\humaid\bertweet5\humaid_bertweet_ft_{event}_{lbcl}_{set_num}",
+        #     fr"--train_path", train_labeled_path,
+        #     fr"--dataset_path", joined_path,
+        #     fr"--model_name", fr"vinai/bertweet-base",
+        #     fr"--label_order", 
+        #     "requests_or_urgent_needs",
+        #     "rescue_volunteering_or_donation_effort",
+        #     "infrastructure_and_utility_damage",
+        #     "missing_or_found_people",
+        #     "displaced_people_and_evacuations",
+        #     "sympathy_and_support",
+        #     "injured_or_dead_people",
+        #     "caution_and_advice",
+        #     "other_relevant_information",
+        #     "not_humanitarian",
+        # ]
+        # code = run_and_stream(bert_cmd, f"bertweet[{tag}]")
+        # if code != 0:
+        #     print(f"[ERROR] bert_ft.py (bertweet) failed for {tag} with exit code {code}", file=sys.stderr)
+        #     exit(code)
         
         # --------- Run bert_ft.py w/ bert-base-uncased ---------
-        bert_cmd = BERT_FT_ARGS_TEMPLATE + [
-            fr"--output_dir", fr"..\artifacts\humaid\bert3\humaid_bert_ft_{event}_{lbcl}_{set_num}",
-            fr"--train_path", train_labeled_path,
-            fr"--dataset_path", joined_path,
-        ]
-        code = run_and_stream(bert_cmd, f"bert[{tag}]")
-        if code != 0:
-            print(f"[ERROR] bert_ft.py failed for {tag} with exit code {code}", file=sys.stderr)
-            exit(code)
+        # bert_cmd = BERT_FT_ARGS_TEMPLATE + [
+        #     fr"--output_dir", fr"..\artifacts\humaid\bert3\humaid_bert_ft_{event}_{lbcl}_{set_num}",
+        #     fr"--train_path", train_labeled_path,
+        #     fr"--dataset_path", joined_path,
+        # ]
+        # code = run_and_stream(bert_cmd, f"bert[{tag}]")
+        # if code != 0:
+        #     print(f"[ERROR] bert_ft.py failed for {tag} with exit code {code}", file=sys.stderr)
+        #     exit(code)
 
     print("\nAll combinations complete.")
 

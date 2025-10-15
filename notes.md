@@ -1,3 +1,7 @@
+# 10/14 Notes
+- do hpft w/ vmatch
+- run w/ adam optimizer -> default is adam optimizer tho... run 4 just set lr_scheduler_type="constant"
+
 # 10/10 Meeting
 ## Task
 - focus on crisismmd + humaid

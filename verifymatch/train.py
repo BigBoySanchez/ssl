@@ -831,7 +831,8 @@ def train(d1,d2=None,aug=None,epoch=0):
         pbar4 = tqdm(total=len(d2_loader))
 
 
-        folder = args.output_path.split("_")[2].replace(".json",'')
+        # folder = args.output_path.split("_")[2].replace(".json",'') # ORIGINAL
+        folder = "./temp"
         if not os.path.exists(folder):
             os.mkdir(folder)
         unlabeled_not_used = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_dataitself_discard_per_iter_dueToVerification_verifyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")

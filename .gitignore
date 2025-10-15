@@ -3,4 +3,5 @@
 /output
 /outputs
 /artifacts
-/utils/10
+**/10
+**/temp

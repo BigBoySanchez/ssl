@@ -229,7 +229,8 @@ def main():
             eval_strategy="epoch", save_strategy="no",
             learning_rate=lr, num_train_epochs=ep,
             per_device_train_batch_size=bs, per_device_eval_batch_size=max(8, bs),
-            report_to=[], seed=args.seed, load_best_model_at_end=False
+            report_to=[], seed=args.seed, load_best_model_at_end=False,
+            lr_scheduler_type="constant",
         )
         trainer = Trainer(
             model=model, args=targs, train_dataset=train_ds, eval_dataset=dev_ds,
@@ -262,9 +263,12 @@ def main():
         output_dir=f"{args.output_dir}/best", eval_strategy="no", save_strategy="no",
         learning_rate=lr, num_train_epochs=ep,
         per_device_train_batch_size=bs, per_device_eval_batch_size=max(8, bs),
-        report_to=[], seed=args.seed
+        report_to=[], seed=args.seed, lr_scheduler_type="constant",
     )
-    trainer = Trainer(model=model, args=targs, train_dataset=train_ds, tokenizer=tok, data_collator=collator)
+    trainer = Trainer(
+        model=model, args=targs, train_dataset=train_ds, 
+        tokenizer=tok, data_collator=collator
+    )
     trainer.train()
     trainer.save_model(f"{args.output_dir}/best")
 
