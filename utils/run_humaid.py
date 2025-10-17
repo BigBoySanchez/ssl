@@ -11,19 +11,19 @@ SETS = [1, 2, 3]
 # SETS = [1, 2, 3]
 
 # Paths to your scripts
-TRAIN_SCRIPT = r"..\verifymatch\optuna_sweep.py"
+TRAIN_SCRIPT = r"..\verifymatch\train.py"
 BERT_FT_SCRIPT = r"..\supervised\bert_ft.py"
 
 # You can define your custom args inline here later
 TRAIN_ARGS_TEMPLATE = [
     "python", TRAIN_SCRIPT,
-    # --python...
-    "--train_py", r"..\verifymatch\train.py",
-    "--model", "bert-base-uncased",
+    "--mode", "bert-base-uncased",
     "--task", "HumAID",
-    "--device", "0",
-    "--max_seq_length", "256",
-    "--n_trials", "3",
+    "--epochs", "5",
+    "--batch_size", "16",
+    "--learning_rate", "3e-5",
+    "--do_train", "--do_evaluate",
+    "--ssl", "--mixup", "--pseudo_label_by_normalized",
     "--seed", "42",
 ]
 
@@ -151,13 +151,17 @@ def main():
         train_labeled_path = separate_event(event, fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\labeled.tsv", "labeled")
         train_unlabeled_path = separate_event(event, fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\unlabeled.tsv", "unlabeled")
 
+        vmatch_out = fr"..\artifacts\humaid\vmatch3\humaid_vmatch_run_{event}_{lbcl}_{set_num}"
+        os.makedirs(vmatch_out, exist_ok=True)
+
         # --------- Run train.py ---------
         train_cmd = TRAIN_ARGS_TEMPLATE + [
-            fr"--labeled_train_path", train_labeled_path,
-            fr"--unlabeled_train_path", train_unlabeled_path,
-            fr"--dev_path", dev_path,
-            fr"--outdir", fr"..\artifacts\humaid\vmatch1\humaid_vmatch_{event}_{lbcl}_{set_num}",
-            fr"--test_path", test_path,
+            "--ckpt_path", fr"{vmatch_out}\model.pt", 
+            "--output_path", fr"{vmatch_out}\preds.json",
+            "--dev_path", dev_path, 
+            "--test_path", test_path,
+            "--labeled_train_path", train_labeled_path,
+            "--unlabeled_train_path", train_unlabeled_path,
         ]
         code = run_and_stream(train_cmd, f"train[{tag}]")
         if code != 0:

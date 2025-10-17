@@ -236,11 +236,12 @@ class HumAIDProcessor:
     """Data loader for HumAID."""
 
     def __init__(self):
-        self.label_map = {'not_humanitarian': 0, 'requests_or_urgent_needs': 1, 
-                          'rescue_volunteering_or_donation_effort': 2, 'infrastructure_and_utility_damage': 3, 
-                          'missing_or_found_people': 4, 'displaced_people_and_evacuations': 5, 
-                          'sympathy_and_support': 6, 'injured_or_dead_people': 7, 
-                          'caution_and_advice': 8, 'other_relevant_information': 9}
+        self.label_map = {'requests_or_urgent_needs': 0, 
+                          'rescue_volunteering_or_donation_effort': 1, 'infrastructure_and_utility_damage': 2, 
+                          'missing_or_found_people': 3, 'displaced_people_and_evacuations': 4, 
+                          'sympathy_and_support': 5, 'injured_or_dead_people': 6, 
+                          'caution_and_advice': 7, 'other_relevant_information': 8,
+                          'not_humanitarian': 9}
 
     def valid_inputs(self, sentence1, label):
         return len(sentence1) > 0 and label in self.label_map
@@ -1340,14 +1341,10 @@ if args.do_evaluate:
     y_pred = [output_dict['pred'] for output_dict in output_dicts]
     y_conf = [output_dict['conf'] for output_dict in output_dicts]
 
-    accuracy = accuracy_score(y_true, y_pred) * 100.
-    f1 = f1_score(y_true, y_pred, average='macro') * 100.
-    confidence = np.mean(y_conf) * 100.
-
     results_dict = {
-        'accuracy': accuracy_score(y_true, y_pred) * 100.,
-        'macro-F1': f1_score(y_true, y_pred, average='macro') * 100.,
-        'confidence': np.mean(y_conf) * 100.,
+        'accuracy': accuracy_score(y_true, y_pred),
+        'macro-F1': f1_score(y_true, y_pred, average='macro'),
+        'confidence': np.mean(y_conf),
     }
     for k, v in results_dict.items():
         print(f'{k} = {v}')

@@ -36,56 +36,8 @@ rows = {
         r"..\zero-shot\humaid_zs.csv"
         # add more CSVs here if needed
     ]),
-    "BERT (5 lb/cl)": metrics_for([
-        # add more CSVs if applicable
-        r"..\artifacts\humaid\bert\humaid_bert_ft_5_1\pred_bert_int.csv",
-        r"..\artifacts\humaid\bert\humaid_bert_ft_5_2\pred_bert_int.csv",
-        r"..\artifacts\humaid\bert\humaid_bert_ft_5_3\pred_bert_int.csv",
-    ]),
-    "BERTweet (5 lb/cl)": metrics_for([
-        # add more CSVs if applicable
-        r"..\artifacts\humaid\bertweet\humaid_bertweet_ft_5_1\pred_bert_int.csv",
-        r"..\artifacts\humaid\bertweet\humaid_bertweet_ft_5_2\pred_bert_int.csv",
-        r"..\artifacts\humaid\bertweet\humaid_bertweet_ft_5_3\pred_bert_int.csv",
-    ]),
-    "VerifyMatch (5 lb/cl)": metrics_for([
-        # add more CSVs if applicable
-        r"..\artifacts\humaid\out\humaid_10_10_5_1.csv",
-        r"..\artifacts\humaid\out\humaid_10_10_5_2.csv",
-        r"..\artifacts\humaid\out\humaid_10_10_5_3.csv",
-    ]),
-    "BERT (10 lb/cl)": metrics_for([
-        # add more CSVs if applicable
-        r"..\artifacts\humaid\bert\humaid_bert_ft_10_1\pred_bert_int.csv",
-        r"..\artifacts\humaid\bert\humaid_bert_ft_10_2\pred_bert_int.csv",
-        r"..\artifacts\humaid\bert\humaid_bert_ft_10_3\pred_bert_int.csv",
-    ]),
-    "BERTweet (10 lb/cl)": metrics_for([
-        # add more CSVs if applicable
-        r"..\artifacts\humaid\bertweet\humaid_bertweet_ft_10_1\pred_bert_int.csv",
-        r"..\artifacts\humaid\bertweet\humaid_bertweet_ft_10_2\pred_bert_int.csv",
-        r"..\artifacts\humaid\bertweet\humaid_bertweet_ft_10_3\pred_bert_int.csv",
-    ]),
-    "VerifyMatch (10 lb/cl)": metrics_for([
-        # add more CSVs if applicable
-        r"..\artifacts\humaid\out\humaid_10_10_10_1.csv",
-        r"..\artifacts\humaid\out\humaid_10_10_10_2.csv",
-        r"..\artifacts\humaid\out\humaid_10_10_10_3.csv",
-    ]),
-    "BERT (25 lb/cl)": metrics_for([
-        # add more CSVs if applicable
-        r"..\artifacts\humaid\bert\humaid_bert_ft_25_1\pred_bert_int.csv",
-    ]),
-    "BERTweet (25 lb/cl)": metrics_for([
-        # add more CSVs if applicable
-        r"..\artifacts\humaid\bertweet\humaid_bertweet_ft_25_1\pred_bert_int.csv",
-    ]),
-    "VerifyMatch (25 lb/cl)": metrics_for([
-        # add more CSVs if applicable
-        r"..\artifacts\humaid\out\humaid_10_10_25_1.csv",
-    ]),
 }
 
 table = pd.DataFrame(rows).T.round(4)
 print(table.to_markdown(index=True))
-table.to_csv("humaid_results_table1.csv", index=True)
+# table.to_csv("humaisd_results_table1.csv", index=True)
