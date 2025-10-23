@@ -14,17 +14,22 @@ SETS = [1, 2, 3]
 TRAIN_SCRIPT = r"..\verifymatch\train.py"
 BERT_FT_SCRIPT = r"..\supervised\bert_ft.py"
 
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["TORCH_SHOW_CPP_STACKTRACES"] = "1"
+
 # You can define your custom args inline here later
 TRAIN_ARGS_TEMPLATE = [
     "python", TRAIN_SCRIPT,
-    "--mode", "bert-base-uncased",
+    "--model", "vinai/bertweet-base",
     "--task", "HumAID",
-    "--epochs", "5",
-    "--batch_size", "16",
-    "--learning_rate", "3e-5",
+    "--epochs", "3",
+    "--batch_size", "32",
+    "--learning_rate", "2e-5",
     "--do_train", "--do_evaluate",
     "--ssl", "--mixup", "--pseudo_label_by_normalized",
     "--seed", "42",
+    "--T", "0.5",
+    "--max_seq_length", "128"
 ]
 
 BERT_FT_ARGS_TEMPLATE = [
@@ -151,7 +156,7 @@ def main():
         train_labeled_path = separate_event(event, fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\labeled.tsv", "labeled")
         train_unlabeled_path = separate_event(event, fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\unlabeled.tsv", "unlabeled")
 
-        vmatch_out = fr"..\artifacts\humaid\vmatch3\humaid_vmatch_run_{event}_{lbcl}_{set_num}"
+        vmatch_out = fr"..\artifacts\humaid\vmatch4\humaid_vmatch_run_{event}_{lbcl}_{set_num}"
         os.makedirs(vmatch_out, exist_ok=True)
 
         # --------- Run train.py ---------

@@ -81,7 +81,7 @@ print(args)
 
 
 assert args.task in ('SNLI', 'MNLI', 'QQP', 'TwitterPPDB', 'SWAG', 'HellaSWAG', 'SICK','RTE','FEVER','HANS','CrisisMMDINF', 'HumAID')
-assert args.model in ('bert-base-uncased', 'roberta-base', 'bert-large-uncased')
+assert args.model in ('bert-base-uncased', 'roberta-base', 'bert-large-uncased', 'vinai/bertweet-base')
 if args.task in ('HumAID'):
     n_classes = 10
 elif args.task in ('SNLI', 'MNLI','SICK','FEVER','HANS'):
@@ -237,11 +237,11 @@ class HumAIDProcessor:
 
     def __init__(self):
         self.label_map = {'requests_or_urgent_needs': 0, 
-                          'rescue_volunteering_or_donation_effort': 1, 'infrastructure_and_utility_damage': 2, 
-                          'missing_or_found_people': 3, 'displaced_people_and_evacuations': 4, 
-                          'sympathy_and_support': 5, 'injured_or_dead_people': 6, 
-                          'caution_and_advice': 7, 'other_relevant_information': 8,
-                          'not_humanitarian': 9}
+                        'rescue_volunteering_or_donation_effort': 1, 'infrastructure_and_utility_damage': 2, 
+                        'missing_or_found_people': 3, 'displaced_people_and_evacuations': 4, 
+                        'sympathy_and_support': 5, 'injured_or_dead_people': 6, 
+                        'caution_and_advice': 7, 'other_relevant_information': 8,
+                        'not_humanitarian': 9}
 
     def valid_inputs(self, sentence1, label):
         return len(sentence1) > 0 and label in self.label_map
@@ -269,15 +269,15 @@ class CrisisMMDINFProcessor:
     saved-to-disk directory (e.g., .../crisismmd2inf_dataset/train).
 
     It emits 4-tuples that your TextDataset expects for *pair* classification:
-      (sentence1, sentence2, label_int, guid)
+    (sentence1, sentence2, label_int, guid)
     where:
-      - sentence1 = tweet_text
-      - sentence2 = event_name  <-- added per request
-      - label_int ∈ {0,1} (not_informative=0, informative=1)
-      - guid = tweet_id (fallback to image_id if missing)
+    - sentence1 = tweet_text
+    - sentence2 = event_name  <-- added per request
+    - label_int ∈ {0,1} (not_informative=0, informative=1)
+    - guid = tweet_id (fallback to image_id if missing)
 
     NOTE: The pair gets encoded as:
-      [CLS] sentence1 [SEP] sentence2 [SEP]
+    [CLS] sentence1 [SEP] sentence2 [SEP]
     which your encode_pair_inputs() already implements. No other code changes needed.
     """
 
@@ -756,10 +756,10 @@ class Model(nn.Module):
     def __init__(self):
         super().__init__()
         self.model = AutoModel.from_pretrained(args.model)
-        if args.model in ('bert-base-uncased', 'roberta-base'):
-            self.classifier = nn.Linear(768, n_classes)
-        elif args.model in ('bert-large-uncased', 'roberta-large-uncased'):
-            self.classifier = nn.Linear(1024,n_classes)
+
+        hidden = self.model.config.hidden_size
+        self.classifier = nn.Linear(hidden, n_classes)
+
         if args.task in ('SWAG', 'HellaSWAG'):
             self.n_choices = -1
 
@@ -774,9 +774,8 @@ class Model(nn.Module):
             attention_mask = attention_mask.view(-1, attention_mask.size(-1))
         transformer_params = {
             'input_ids': input_ids,
-            'token_type_ids': (
-                segment_ids if args.model in ('bert-base-uncased','bert-large-uncased') else None
-            ),
+            # BERT uses token_type_ids; RoBERTa/BERTweet do not.
+            'token_type_ids': (segment_ids if args.model in ('bert-base-uncased','bert-large-uncased') else None),
             'attention_mask': attention_mask,
         }
         transformer_outputs = self.model(**transformer_params)
@@ -784,13 +783,12 @@ class Model(nn.Module):
         if args.ssl:
             return transformer_outputs
         else:
+            # Always use CLS from last_hidden_state for logits
+            last_hidden = transformer_outputs[0]        # [B, L, H]
+            cls_output  = last_hidden[:, 0]             # [B, H]
+            logits = self.classifier(cls_output)
             if args.task in ('SWAG', 'HellaSWAG'):
-                pooled_output = transformer_outputs[1]
-                logits = self.classifier(pooled_output)
                 logits = logits.view(-1, self.n_choices)
-            else:
-                cls_output = transformer_outputs[0][:, 0]
-                logits = self.classifier(cls_output)
             return logits
 
 
@@ -807,6 +805,26 @@ def smoothing_label(target, smoothing):
 
 prev_mean1 = cuda(torch.tensor(1.,dtype=torch.float))#, cuda(torch.tensor(1.,dtype=torch.float))
 prev_std1 = cuda(torch.tensor(1.,dtype=torch.float))#, cuda(torch.tensor(1.,dtype=torch.float))
+
+def take_cls(feat):
+    """Return CLS/<s> features as [B, H] for any of:
+    - [B, L, H]  last_hidden_state
+    - [B, H]     already CLS
+    - [H]        single example vector
+    - HF BaseModelOutput (tuple-like)
+    """
+    if isinstance(feat, (tuple, list)):  # HF outputs
+        feat = feat[0]  # last_hidden_state
+
+    if feat.dim() == 3:          # [B, L, H]
+        feat = feat[:, 0]        # -> [B, H]
+    elif feat.dim() == 1:        # [H]
+        feat = feat.unsqueeze(0) # -> [1, H]
+    elif feat.dim() != 2:        # anything else is unexpected
+        raise ValueError(f"Unexpected CLS tensor shape: {tuple(feat.shape)}")
+
+    return feat  # guaranteed [B, H]
+
 
 def train(d1,d2=None,aug=None,epoch=0):
     """Fine-tunes pre-trained model on training set."""
@@ -894,53 +912,169 @@ def train(d1,d2=None,aug=None,epoch=0):
                 else:
                     logits2 = model.classifier(output2[:,0])
 
-            # print(output1.shape, output2.shape)
-            # output1 = output1[:,0]
-            output2 = output2[:,0]
-
-
             ## Pseudo Label Generation
-            if args.task in ('SWAG'): logits2 = logits2.view(-1,model.n_choices)
-            tmp_labels2 = F.softmax(logits2,dim=-1)
+            # ALWAYS use CLS for both labeled and unlabeled
+            cls1 = take_cls(output1)      # [B1, H]
+            cls2 = take_cls(output2)      # [B2, H]
+            H    = cls1.shape[-1]
+
+            # logits for unlabeled CLS
+            logits2 = (model.module.classifier(cls2) if args.multigpus else model.classifier(cls2))
+            if args.task in ('SWAG'):
+                logits2 = logits2.view(-1, model.n_choices)
+
+            # soft labels with sharpening
+            tmp_labels2 = F.softmax(logits2, dim=-1)
             if args.sharpening:
-                tmp_labels2 = tmp_labels2**(1/args.T)
+                tmp_labels2 = tmp_labels2 ** (1 / args.T)
                 tmp_labels2 = tmp_labels2 / tmp_labels2.sum(dim=1, keepdim=True)
-            verifier_prob, verifier_label = torch.max(tmp_labels2,dim=-1)
+
+            verifier_prob, verifier_label = torch.max(tmp_labels2, dim=-1)
             original_prob, original_idx, original_true_labels2 = verifier_prob, verifier_label, true_labels2
 
-            mismatch_outputs, mismatch_labels =  cuda(torch.zeros([int(output2.shape[0]), 768])), cuda(torch.tensor([[0. for _ in range(n_classes)] for _ in range(int(output2.shape[0]))]))#,cuda(torch.tensor([0 for _ in range(int(output2.shape[0]))]))#cuda(torch.zeros([int(output2.shape[0]/2), n_classes]))
-            filtered_outputs, filtered_labels = cuda(torch.zeros([int(output2.shape[0]), 768])), cuda(torch.tensor([0 for _ in range(int(output2.shape[0]))]))#cuda(torch.zeros([int(output2.shape[0]/2), n_classes]))
-            filtered_prob = cuda(torch.zeros_like(verifier_prob))
-            filtered_label = cuda(torch.zeros_like(verifier_label))
-            usage_check = cuda(torch.tensor([-1 for _ in range(0,output2.shape[0])]))
-            mismatch_idx, filtered_idx = 0,0
+            # allocate buffers in [*, H] (NO seq_len dim anywhere)
+            mismatch_outputs = cuda(torch.zeros([int(cls2.shape[0]), H]))
+            mismatch_labels  = cuda(torch.zeros([int(cls2.shape[0]), n_classes]))
+            filtered_outputs = cuda(torch.zeros([int(cls2.shape[0]), H]))
+            filtered_labels  = cuda(torch.zeros([int(cls2.shape[0])], dtype=torch.long))
+            filtered_prob    = cuda(torch.zeros_like(verifier_prob))
+            usage_check      = cuda(torch.full((int(cls2.shape[0]),), -1, dtype=torch.long))
+
+            mismatch_idx, filtered_idx = 0, 0
             discard_count = 0
-            for output_idx in range(verifier_prob.shape[0]):
-                if verifier_label[output_idx] == true_labels2[output_idx]:
-                    filtered_outputs[filtered_idx] = output2[output_idx]
-                    filtered_labels[filtered_idx] = true_labels2[output_idx]
-                    filtered_prob[filtered_idx] = verifier_prob[output_idx]
-                    usage_check[output_idx] = 1
+
+            # split matched vs mismatched (store CLS features only)
+            for u_idx in range(verifier_prob.shape[0]):
+                if verifier_label[u_idx] == true_labels2[u_idx]:
+                    filtered_outputs[filtered_idx] = cls2[u_idx]                      # [H]
+                    filtered_labels[filtered_idx]  = true_labels2[u_idx]
+                    filtered_prob[filtered_idx]    = verifier_prob[u_idx]
+                    usage_check[u_idx]             = 1
                     filtered_idx += 1
                 else:
                     discard_count += 1
-                    mismatch_outputs[mismatch_idx] = output2[output_idx]
-                    mismatch_labels[mismatch_idx,true_labels2[output_idx]] = tmp_labels2[output_idx][true_labels2[output_idx]]
+                    mismatch_outputs[mismatch_idx] = cls2[u_idx]                      # [H]
+                    # one-hot only the true class prob from tmp_labels2
+                    mismatch_labels[mismatch_idx, true_labels2[u_idx]] = tmp_labels2[u_idx][true_labels2[u_idx]]
                     mismatch_idx += 1
-            mismatch_outputs = mismatch_outputs[:mismatch_idx]
-            mismatch_labels = mismatch_labels[:mismatch_idx]
-            select_idx = torch.randperm(mismatch_outputs.shape[0])
-            labeled4MisMatched = output1[select_idx]
-            labeled4MisMatchedLabels = labels1[select_idx]
-            labeled4MisMatchedLabelsOneHot = smoothing_label(labeled4MisMatchedLabels,smoothing_val)
-            
-            discardMixUp = labeled4MisMatched * lam + mismatch_outputs * (1-lam)
-            discardMixUpLabels = labeled4MisMatchedLabelsOneHot * lam + mismatch_labels * (1-lam)
-            if args.multigpus:
-                discardMixUp = model.module.classifier(discardMixUp)
+
+            # finalize trimmed tensors
+            mismatch_outputs = mismatch_outputs[:mismatch_idx]  # [M, H]
+            mismatch_labels  = mismatch_labels[:mismatch_idx]   # [M, C]
+            filtered_outputs = filtered_outputs[:filtered_idx]  # [U, H]
+            filtered_labels  = filtered_labels[:filtered_idx]   # [U]
+            filtered_prob    = filtered_prob[:filtered_idx]
+
+            # write out unused unlabeled if you need (left as-is)
+            for u_idx, u in enumerate(usage_check):
+                if u == -1:
+                    unlabeled_not_used.write(
+                        str(original_unlabeled[u_idx]) + "\t" +
+                        str(original_true_labels2[u_idx].data.tolist()) + "\t" +
+                        str(original_idx[u_idx].data.tolist()) + "\n"
+                    )
+
+            # set avg threshold (global mean or your per-class variant)
+            avg_prob = torch.mean(filtered_prob) if filtered_prob.numel() > 0 else torch.tensor(0., device=filtered_prob.device)
+            average_tracking.write(str(avg_prob.item()) + "\n")
+            confidence_tracking.write(str(filtered_prob.data.tolist()) + "\n")
+
+            # split matched into high/low by confidence (still CLS only)
+            low_output  = cuda(torch.zeros([int(filtered_outputs.shape[0]), H]))
+            high_output = cuda(torch.zeros([int(filtered_outputs.shape[0]), H]))
+            high_true_labels = cuda(torch.zeros([int(filtered_outputs.shape[0])], dtype=torch.long))
+            low_true_labels  = cuda(torch.zeros([int(filtered_outputs.shape[0])], dtype=torch.long))
+
+            low_idx = high_idx = 0
+            for k in range(filtered_outputs.shape[0]):
+                if filtered_prob[k] >= avg_prob:
+                    high_output[high_idx]     = filtered_outputs[k]
+                    high_true_labels[high_idx]= filtered_labels[k]
+                    high_file.write(str(original_unlabeled[k])+"\t"+str(filtered_prob[k].item())+"\t"+
+                                    str(filtered_labels[k].item())+"\t"+str(filtered_labels[k].item())+"\n")
+                    high_idx += 1
+                else:
+                    low_output[low_idx]       = filtered_outputs[k]
+                    low_true_labels[low_idx]  = filtered_labels[k]
+                    low_file.write(str(original_unlabeled[k])+"\t"+str(filtered_prob[k].item())+"\t"+
+                                str(filtered_labels[k].item())+"\t"+str(filtered_labels[k].item())+"\n")
+                    low_idx += 1
+
+            high_output     = high_output[:high_idx]           # [Hh, H]
+            high_true_labels= high_true_labels[:high_idx]      # [Hh]
+            low_output      = low_output[:low_idx]             # [Hl, H]
+            low_true_labels = low_true_labels[:low_idx]        # [Hl]
+
+            # ======== MIXUP pieces (sizes must match) ========
+
+            # MixUp against low-confidence matched set (paper-style) by default
+            # choose the smaller K across the two sources to ensure shapes match
+            smoothing_val = 0.3
+            if args.mixup:
+                # choose which unlabeled pool to mix with
+                if args.high_mixup:
+                    pool_feat  = high_output
+                    pool_y_int = high_true_labels
+                else:
+                    pool_feat  = low_output
+                    pool_y_int = low_true_labels
+
+                # label smoothing for the chosen pool (one-hot)
+                pool_y = smoothing_label(pool_y_int, smoothing_val) if pool_feat.shape[0] > 0 else cuda(torch.zeros([0, n_classes]))
+
+                # determine K that both sides can supply
+                M_pool = pool_feat.shape[0]
+                B_lab  = cls1.shape[0]
+                K      = min(M_pool, B_lab)
+
+                if K > 0:
+                    # random K from each
+                    idx_pool = torch.randperm(M_pool, device=cls1.device)[:K]
+                    idx_lab  = torch.randperm(B_lab,  device=cls1.device)[:K]
+
+                    labeled_part     = cls1[idx_lab]                         # [K, H]
+                    labeled_onehot   = smoothing_label(labels1[idx_lab], smoothing_val)  # [K, C]
+                    pool_part        = pool_feat[idx_pool]                   # [K, H]
+                    pool_onehot      = pool_y[idx_pool]                      # [K, C]
+
+                    # do the actual mix
+                    mixup_output = labeled_part * lam + pool_part * (1 - lam)            # [K, H]
+                    mixup_label  = labeled_onehot * lam + pool_onehot * (1 - lam)        # [K, C]
+
+                    # classify the mixed features
+                    mixup_output = (model.module.classifier(mixup_output)
+                                    if args.multigpus else model.classifier(mixup_output))
+                    if args.task in ('SWAG'):
+                        mixup_output = mixup_output.view(-1, model.n_choices)
+                    mixup_loss = torch.mean(torch.sum(-mixup_label * torch.log_softmax(mixup_output, dim=-1), dim=-1))
+                else:
+                    mixup_loss = cuda(torch.tensor(0.))
             else:
-                discardMixUp = model.classifier(discardMixUp)
-            discardMixUpLoss = torch.mean(torch.sum(-discardMixUpLabels * torch.log_softmax(discardMixUp, dim=-1), dim=-1))
+                mixup_loss = cuda(torch.tensor(0.))
+
+            # ======== Discard-MixUp (mismatched vs labeled), sizes must match ========
+
+            M = mismatch_outputs.shape[0]
+            B = cls1.shape[0]
+            K2 = min(M, B)
+
+            if K2 > 0:
+                idx_m = torch.randperm(M, device=cls1.device)[:K2]
+                idx_l = torch.randperm(B, device=cls1.device)[:K2]
+
+                labeled_sel     = cls1[idx_l]                                   # [K2, H]
+                labeled_onehot2 = smoothing_label(labels1[idx_l], smoothing_val)# [K2, C]
+                mis_sel         = mismatch_outputs[idx_m]                        # [K2, H]
+                mis_onehot      = mismatch_labels[idx_m]                         # [K2, C]
+
+                discardMixUp      = labeled_sel * lam + mis_sel * (1 - lam)      # [K2, H]
+                discardMixUpLabels= labeled_onehot2 * lam + mis_onehot * (1 - lam)  # [K2, C]
+
+                discardMixUp = (model.module.classifier(discardMixUp)
+                                if args.multigpus else model.classifier(discardMixUp))
+                discardMixUpLoss = torch.mean(torch.sum(-discardMixUpLabels * torch.log_softmax(discardMixUp, dim=-1), dim=-1))
+            
+
             
             output2 = filtered_outputs[:filtered_idx]
             true_labels2 = filtered_labels[:filtered_idx]
@@ -958,8 +1092,8 @@ def train(d1,d2=None,aug=None,epoch=0):
             #avg_prob = torch.median(prob)
             ## When using fixed high threshold value
             # avg_prob = 0.9
-            low_output = cuda(torch.zeros([int(output2.shape[0]), 768])) 
-            high_output = cuda(torch.zeros([int(output2.shape[0]), 768]))
+            low_output = cuda(torch.zeros([int(output2.shape[0]), H])) 
+            high_output = cuda(torch.zeros([int(output2.shape[0]), H]))
             high_true_labels, low_true_labels = cuda(torch.tensor([0 for _ in range(int(verifier_label.shape[0]))])),cuda(torch.tensor([0 for _ in range(int(verifier_label.shape[0]))]))#cuda(torch.zeros([int(idx.shape[0]/2)])),cuda(torch.zeros([int(idx.shape[0]/2)]))
             low_idx, high_idx, c_idx = 0,0,0
             high_inputs, low_inputs = [],[]
@@ -1115,7 +1249,18 @@ model = cuda(Model())
 if args.multigpus:
     model = nn.DataParallel(model)
 processor = select_processor()
-tokenizer = AutoTokenizer.from_pretrained(args.model)
+
+
+if args.model == 'vinai/bertweet-base':
+    # BERTweet: RoBERTa-like tokenizer; normalization helps on noisy Twitter text.
+    # Some HF versions expose `normalization`; guard it to stay compatible.
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False, normalization=True)
+    except TypeError:
+        tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
+else:
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
+
 criterion = nn.CrossEntropyLoss()
 
 if args.ssl:
