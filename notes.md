@@ -1,3 +1,15 @@
+# 10/23
+- vector database
+- embed labeled tweets
+- embed unlabeled tweets
+- compare the similarities between both embeddings
+- take 5 most similar texts from labeled vector db as an example for the llm
+- for more llm accuracy :):):):):):):)
+- look up how to preprocess data
+- judge arena
+- use state of the art models pls
+- 
+
 google colab pro, gpu server, lab pc 
 disasters= ['california wildfires', 'hurricanes',...]
 do verifymatch runs w/o hpft
