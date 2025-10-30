@@ -3,16 +3,17 @@ import itertools
 import sys
 import os
 import pandas as pd
+from pathlib import Path 
 
 # Configurable params
-LB_PER_CLASS = [5]
-SETS = [1]
-# LB_PER_CLASS = [5, 10, 25, 50]
-# SETS = [1, 2, 3]
+# LB_PER_CLASS = [5]
+# SETS = [1]
+LB_PER_CLASS = [5, 10, 25, 50]
+SETS = [1, 2, 3]
 
 # Paths to your scripts
-TRAIN_SCRIPT = r"..\verifymatch\train.py"
-BERT_FT_SCRIPT = r"..\supervised\bert_ft.py"
+TRAIN_SCRIPT = Path(r"..\verifymatch\train.py").as_posix()
+BERT_FT_SCRIPT = Path(r"..\supervised\bert_ft.py").as_posix()
 
 # You can define your custom args inline here later
 TRAIN_ARGS_TEMPLATE = [
@@ -63,12 +64,14 @@ def run_and_stream(cmd, prefix):
     return proc.wait()
 
 def get_events(tsv_folder):
+    tsv_folder = Path(tsv_folder).as_posix()
+    
     files = [os.path.join(tsv_folder, f"{split}.tsv") for split in ["train", "dev", "test"]]
     df = pd.concat(
         (pd.read_csv(f, sep="\t", usecols=[0]) for f in files),
         ignore_index=True
     )
-    return set(df.iloc[:, 0].unique())
+    return set(df["event"].unique())
 
 def separate_event(event, tsv_file, outfile_name):
     """
@@ -76,6 +79,8 @@ def separate_event(event, tsv_file, outfile_name):
     Save them to a new TSV file in: ./temp/{event}_{outfile_name}.tsv
     Returns the output file path.
     """
+    tsv_file = Path(tsv_file).as_posix()
+    
     # Ensure temp directory exists
     os.makedirs("temp", exist_ok=True)
 
@@ -153,7 +158,7 @@ def main():
         train_labeled_path = separate_event(event, fr"..\data\humaid\anh_4o\sep\{lbcl}lb\{set_num}\labeled.tsv", "labeled")
         train_unlabeled_path = separate_event(event, fr"..\data\humaid\anh_4o\sep\{lbcl}lb\{set_num}\unlabeled.tsv", "unlabeled")
 
-        vmatch_out = fr"..\artifacts\humaid\vmatch6\humaid_vmatch_run_{event}_{lbcl}_{set_num}"
+        vmatch_out = Path(fr"..\artifacts\humaid\vmatch7\humaid_vmatch_run_{event}_{lbcl}_{set_num}").as_posix()
         os.makedirs(vmatch_out, exist_ok=True)
 
         # --------- Run train.py ---------
