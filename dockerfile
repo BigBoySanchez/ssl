@@ -7,10 +7,8 @@ RUN apt-get update && apt-get install -y git
 RUN git clone https://github.com/BigBoySanchez/ssl
 
 # Make symlinks to artifacts and data to save space
-RUN mkdir -p ../artifacts ../data && \
-    ln -s /artifacts /workspace/ssl/artifacts && \
-    ln -s /data /workspace/ssl/data
+RUN mkdir -p /workspace/ssl/artifacts /workspace/ssl/data
 
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r /workspace/ssl/requirements.txt
 
 CMD ["bash"]

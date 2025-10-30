@@ -12,8 +12,8 @@ LB_PER_CLASS = [5, 10, 25, 50]
 SETS = [1, 2, 3]
 
 # Paths to your scripts
-TRAIN_SCRIPT = Path(r"..\verifymatch\train.py").as_posix()
-BERT_FT_SCRIPT = Path(r"..\supervised\bert_ft.py").as_posix()
+TRAIN_SCRIPT = r"../verifymatch/train.py"
+BERT_FT_SCRIPT = r"../supervised/bert_ft.py"
 
 # You can define your custom args inline here later
 TRAIN_ARGS_TEMPLATE = [
@@ -64,8 +64,6 @@ def run_and_stream(cmd, prefix):
     return proc.wait()
 
 def get_events(tsv_folder):
-    tsv_folder = Path(tsv_folder).as_posix()
-    
     files = [os.path.join(tsv_folder, f"{split}.tsv") for split in ["train", "dev", "test"]]
     df = pd.concat(
         (pd.read_csv(f, sep="\t", usecols=[0]) for f in files),
@@ -79,7 +77,6 @@ def separate_event(event, tsv_file, outfile_name):
     Save them to a new TSV file in: ./temp/{event}_{outfile_name}.tsv
     Returns the output file path.
     """
-    tsv_file = Path(tsv_file).as_posix()
     
     # Ensure temp directory exists
     os.makedirs("temp", exist_ok=True)
@@ -144,7 +141,7 @@ def separate_event_folder(event, tsv_folder, outfile_name):
     return out_folder
 
 def main():
-    EVENTS = get_events(r"..\data\humaid\joined")
+    EVENTS = get_events(r"../data/humaid/joined")
     # TODO: ts is for testing only, remove later
     # EVENTS = ["california_wildfires_2018"]
 
@@ -152,19 +149,19 @@ def main():
         tag = f"{event}_lb{lbcl}_set{set_num}"
         print(f"\n=== Running combo: {tag} ===", flush=True)
 
-        dev_path = separate_event(event, r"..\data\humaid\joined\dev.tsv", "dev")
-        test_path = separate_event(event, r"..\data\humaid\joined\test.tsv", "test")
-        joined_path = separate_event_folder(event, r"..\data\humaid\joined", "joined")
-        train_labeled_path = separate_event(event, fr"..\data\humaid\anh_4o\sep\{lbcl}lb\{set_num}\labeled.tsv", "labeled")
-        train_unlabeled_path = separate_event(event, fr"..\data\humaid\anh_4o\sep\{lbcl}lb\{set_num}\unlabeled.tsv", "unlabeled")
+        dev_path = separate_event(event, r"../data/humaid/joined/dev.tsv", "dev")
+        test_path = separate_event(event, r"../data/humaid/joined/test.tsv", "test")
+        joined_path = separate_event_folder(event, r"../data/humaid/joined", "joined")
+        train_labeled_path = separate_event(event, fr"../data/humaid/anh_4o/sep/{lbcl}lb/{set_num}/labeled.tsv", "labeled")
+        train_unlabeled_path = separate_event(event, fr"../data/humaid/anh_4o/sep/{lbcl}lb/{set_num}/unlabeled.tsv", "unlabeled")
 
-        vmatch_out = Path(fr"..\artifacts\humaid\vmatch7\humaid_vmatch_run_{event}_{lbcl}_{set_num}").as_posix()
+        vmatch_out = fr"../artifacts/humaid/vmatch7/humaid_vmatch_run_{event}_{lbcl}_{set_num}"
         os.makedirs(vmatch_out, exist_ok=True)
 
         # --------- Run train.py ---------
         train_cmd = TRAIN_ARGS_TEMPLATE + [
-            "--ckpt_path", fr"{vmatch_out}\model.pt", 
-            "--output_path", fr"{vmatch_out}\preds.json",
+            "--ckpt_path", fr"{vmatch_out}/model.pt", 
+            "--output_path", fr"{vmatch_out}/preds.json",
             "--dev_path", dev_path, 
             "--test_path", test_path,
             "--labeled_train_path", train_labeled_path,
