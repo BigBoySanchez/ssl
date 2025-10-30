@@ -1,3 +1,5 @@
+https://code.visualstudio.com/docs/devcontainers/containers
+
 # 10/23
 - vector database
 - embed labeled tweets

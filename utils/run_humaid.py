@@ -5,8 +5,8 @@ import os
 import pandas as pd
 
 # Configurable params
-LB_PER_CLASS = [5, 10, 25, 50]
-SETS = [1, 2, 3]
+LB_PER_CLASS = [5]
+SETS = [1]
 # LB_PER_CLASS = [5, 10, 25, 50]
 # SETS = [1, 2, 3]
 
@@ -93,7 +93,7 @@ def separate_event(event, tsv_file, outfile_name):
         return None
 
     # Assuming the event column is the first column
-    event_df = df[df.iloc[:, 0] == event]
+    event_df = df[df["event"] == event]
 
     # Only save if there are matching rows
     if event_df.empty:
@@ -129,7 +129,7 @@ def separate_event_folder(event, tsv_folder, outfile_name):
             continue
 
         # Assuming the event column is the first column
-        event_df = df[df.iloc[:, 0] == event]
+        event_df = df[df["event"] == event]
 
         # Write only if filtered data exists
         if not event_df.empty:
@@ -150,10 +150,10 @@ def main():
         dev_path = separate_event(event, r"..\data\humaid\joined\dev.tsv", "dev")
         test_path = separate_event(event, r"..\data\humaid\joined\test.tsv", "test")
         joined_path = separate_event_folder(event, r"..\data\humaid\joined", "joined")
-        train_labeled_path = separate_event(event, fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\labeled.tsv", "labeled")
-        train_unlabeled_path = separate_event(event, fr"..\data\humaid\plabel\train\sep\{lbcl}lb\{set_num}\unlabeled.tsv", "unlabeled")
+        train_labeled_path = separate_event(event, fr"..\data\humaid\anh_4o\sep\{lbcl}lb\{set_num}\labeled.tsv", "labeled")
+        train_unlabeled_path = separate_event(event, fr"..\data\humaid\anh_4o\sep\{lbcl}lb\{set_num}\unlabeled.tsv", "unlabeled")
 
-        vmatch_out = fr"..\artifacts\humaid\vmatch5\humaid_vmatch_run_{event}_{lbcl}_{set_num}"
+        vmatch_out = fr"..\artifacts\humaid\vmatch6\humaid_vmatch_run_{event}_{lbcl}_{set_num}"
         os.makedirs(vmatch_out, exist_ok=True)
 
         # --------- Run train.py ---------

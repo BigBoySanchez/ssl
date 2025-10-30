@@ -5,3 +5,4 @@
 /artifacts
 **/10
 **/temp
+**/.env
