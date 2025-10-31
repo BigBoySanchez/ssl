@@ -1,3 +1,35 @@
+# 10/30
+## NOTES
+- plabel is the gold standard
+- nli might be better w/ pgen
+- stick with plabel
+- grid search
+   - look at wandb docs
+- web4good conference
+- vmatch ideally should be better than super & unsupervised
+
+
+## Status
+- 4o-mini doubled gpt5-f1 scores
+- did 1 run with anh's plabels
+- running gpu server with anh's labels + iscram paper hyperparams
+- migrated to the gpu server
+
+## Plans
+- integrate w/ wandb for hpft
+- remove pseudo_label_by_normalized arg
+- use multiple gpus for faster training/hpft
+
+## Q's
+- how can i utilize multi gpu?
+   - DataParallel
+   - DistributedDataParallel
+   - HF Trainer
+   - Each gpu trains unique model?
+      - how would that work w/ wandb
+- is pseudo-generation or pseudo-labeling better? why?
+- what's a good search space for this project?
+
 # 10/23
 - vector database
 - embed labeled tweets
