@@ -91,9 +91,9 @@ args.pseudo_label_by_normalized = True
 args.ssl = True
 args.mixup = True
 
-event = ##EVENT
-lbcl = ##LBCL
-run_num = ##RUN_NUM
+event = 0##EVENT
+lbcl = 0##LBCL
+run_num = 0##RUN_NUM
 
 group_name = f'{event}_{lbcl}'
 tags = [args.task,event,lbcl]
