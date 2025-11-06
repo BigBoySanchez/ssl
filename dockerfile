@@ -15,7 +15,7 @@ FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel
 WORKDIR /workspace
 
 # Install vim for quick fixes
-RUN apt update && apt-get install -y git
+RUN apt update && apt-get install -y vim
 
 # Copy code from the previous stage
 COPY --from=cloner /src /workspace/ssl
