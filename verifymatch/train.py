@@ -85,6 +85,7 @@ parser.add_argument('--set_num', type=int, default=None)
 args = parser.parse_args()
 
 # Construct optional grouping and tagging info
+args.device = int("##DEVICE_ID")
 args.do_train = True
 args.do_evaluate = True
 args.pseudo_label_by_normalized = True

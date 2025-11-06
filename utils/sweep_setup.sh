@@ -9,9 +9,10 @@ set -e  # Exit on error
 EVENT=$1
 LBCL=$2
 RUN_NUM=$3
+DEVICE_ID=$4
 
-if [ -z "$EVENT" ] || [ -z "$LBCL" ] || [ -z "$RUN_NUM" ]; then
-  echo "Usage: $0 <EVENT> <LBCL> <RUN_NUM>"
+if [ -z "$EVENT" ] || [ -z "$LBCL" ] || [ -z "$RUN_NUM" ] || [ -z "$DEVICE_ID" ]; then
+  echo "Usage: $0 <EVENT> <LBCL> <RUN_NUM> <DEVICE_ID>"
   exit 1
 fi
 
@@ -26,7 +27,8 @@ echo "Updating train.py placeholders..."
 sed -i "s|##EVENT|${EVENT}|g" "$TRAIN_FILE"
 sed -i "s|##LBCL|${LBCL}|g" "$TRAIN_FILE"
 sed -i "s|##RUN_NUM|${RUN_NUM}|g" "$TRAIN_FILE"
-echo "Updated $TRAIN_FILE with EVENT=$EVENT, LBCL=$LBCL, RUN_NUM=$RUN_NUM"
+sed -i "s|##DEVICE_ID|${DEVICE_ID}|g" "$TRAIN_FILE"
+echo "Updated $TRAIN_FILE with EVENT=$EVENT, LBCL=$LBCL, RUN_NUM=$RUN_NUM, DEVICE_ID=$DEVICE_ID"
 
 # === Start W&B sweep ===
 echo "Running W&B sweep..."
