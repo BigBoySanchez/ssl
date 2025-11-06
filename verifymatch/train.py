@@ -34,7 +34,7 @@ from itertools import cycle
 from datasets import load_from_disk, load_dataset
 import time
 
-sys.path.append("C:/Users/gd3470/Desktop/ssl/utils")
+sys.path.append("../utils")
 from run_humaid import get_paths
 
 import wandb
@@ -91,9 +91,9 @@ args.pseudo_label_by_normalized = True
 args.ssl = True
 args.mixup = True
 
-event = "TODO"
-lbcl = "TODO"
-run_num = None # TODO
+event = ##EVENT
+lbcl = ##LBCL
+run_num = ##RUN_NUM
 
 group_name = f'{event}_{lbcl}'
 tags = [args.task,event,lbcl]
