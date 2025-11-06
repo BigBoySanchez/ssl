@@ -12,14 +12,7 @@ RUN git clone https://github.com/BigBoySanchez/ssl.git . && \
 # === Stage 2: Final runtime image ===
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel
 
-# === Build arguments ===
-ARG EVENT
-ARG LBCL
-ARG RUN_NUM
-
 WORKDIR /workspace
-
-RUN apt-get update && apt-get install -y vim
 
 # Copy code from the previous stage
 COPY --from=cloner /src /workspace/ssl
@@ -29,11 +22,6 @@ RUN mkdir -p /workspace/ssl/artifacts /workspace/ssl/data
 
 # Install dependencies
 RUN pip install --no-cache-dir -r /workspace/ssl/requirements.txt
-
-# === Inject build-time args into train.py ===
-RUN sed -i "s|##EVENT|${EVENT}|g" /workspace/ssl/verifymatch/train.py && \
-    sed -i "s|##LBCL|${LBCL}|g" /workspace/ssl/verifymatch/train.py && \
-    sed -i "s|##RUN_NUM|${RUN_NUM}|g" /workspace/ssl/verifymatch/train.py
 
 # === W&B setup (optional) ===
 ENV WANDB_API_KEY=
