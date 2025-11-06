@@ -1,3 +1,9 @@
+# 11/-6
+## NOTES
+- event runs replace old events
+- why does it make 2 workspaces
+- epoch from config not passing into train
+
 # 10/30
 ## NOTES
 - plabel is the gold standard

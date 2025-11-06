@@ -140,10 +140,36 @@ def separate_event_folder(event, tsv_folder, outfile_name):
 
     return out_folder
 
+def get_paths(event: str, lbcl: int, set_num: int, run_num:int=0) -> dict:
+    """
+    Returns a dictionary of dataset and artifact paths for a given event, label count, and set number.
+    """
+
+    dev_path = separate_event(event, r"../data/humaid/joined/dev.tsv", "dev")
+    test_path = separate_event(event, r"../data/humaid/joined/test.tsv", "test")
+    joined_path = separate_event_folder(event, r"../data/humaid/joined", "joined")
+
+    train_labeled_path = separate_event(
+        event, fr"../data/humaid/anh_4o/sep/{lbcl}lb/{set_num}/labeled.tsv", "labeled"
+    )
+    train_unlabeled_path = separate_event(
+        event, fr"../data/humaid/anh_4o/sep/{lbcl}lb/{set_num}/unlabeled.tsv", "unlabeled"
+    )
+
+    vmatch_out = fr"../artifacts/humaid/vmatch{run_num}/humaid_vmatch_run_{event}_{lbcl}_{set_num}"
+    os.makedirs(vmatch_out, exist_ok=True)
+
+    return {
+        "dev_path": dev_path,
+        "test_path": test_path,
+        "joined_path": joined_path,
+        "train_labeled_path": train_labeled_path,
+        "train_unlabeled_path": train_unlabeled_path,
+        "vmatch_out": vmatch_out,
+    }
+
 def main():
     EVENTS = get_events(r"../data/humaid/joined")
-    # TODO: ts is for testing only, remove later
-    # EVENTS = ["california_wildfires_2018"]
 
     for lbcl, event, set_num in itertools.product(LB_PER_CLASS, EVENTS, SETS):
         tag = f"{event}_lb{lbcl}_set{set_num}"
