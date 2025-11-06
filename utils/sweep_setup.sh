@@ -18,26 +18,26 @@ fi
 TRAIN_FILE="./ssl/verifymatch/train.py"
 
 if [ ! -f "$TRAIN_FILE" ]; then
-  echo "❌ Cannot find $TRAIN_FILE"
+  echo "Cannot find $TRAIN_FILE"
   exit 1
 fi
 
 echo "🪄 Updating train.py placeholders..."
-sed -i "s|0##EVENT|${EVENT}|g" "$TRAIN_FILE"
-sed -i "s|0##LBCL|${LBCL}|g" "$TRAIN_FILE"
-sed -i "s|0##RUN_NUM|${RUN_NUM}|g" "$TRAIN_FILE"
-echo "✅ Updated $TRAIN_FILE with EVENT=$EVENT, LBCL=$LBCL, RUN_NUM=$RUN_NUM"
+sed -i "s|##EVENT|${EVENT}|g" "$TRAIN_FILE"
+sed -i "s|##LBCL|${LBCL}|g" "$TRAIN_FILE"
+sed -i "s|##RUN_NUM|${RUN_NUM}|g" "$TRAIN_FILE"
+echo "Updated $TRAIN_FILE with EVENT=$EVENT, LBCL=$LBCL, RUN_NUM=$RUN_NUM"
 
 # === Start W&B sweep ===
-echo "🚀 Creating W&B sweep..."
+echo "Creating W&B sweep..."
 SWEEP_ID=$(wandb sweep sweep.yaml | awk '/Created sweep with ID:/ {print $NF}')
 
 if [ -z "$SWEEP_ID" ]; then
-  echo "❌ Failed to create sweep. Check your sweep.yaml configuration."
+  echo "Failed to create sweep. Check your sweep.yaml configuration."
   exit 1
 fi
 
-echo "✅ Sweep created: $SWEEP_ID"
+echo "Sweep created: $SWEEP_ID"
 
 # === Run W&B agent ===
 # (Ensure WANDB_ENTITY and WANDB_PROJECT are set, or edit below)
