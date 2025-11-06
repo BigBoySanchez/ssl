@@ -15,14 +15,14 @@ if [ -z "$EVENT" ] || [ -z "$LBCL" ] || [ -z "$RUN_NUM" ]; then
   exit 1
 fi
 
-TRAIN_FILE="./ssl/verifymatch/train.py"
+TRAIN_FILE="./train.py"
 
 if [ ! -f "$TRAIN_FILE" ]; then
   echo "Cannot find $TRAIN_FILE"
   exit 1
 fi
 
-echo "🪄 Updating train.py placeholders..."
+echo "Updating train.py placeholders..."
 sed -i "s|##EVENT|${EVENT}|g" "$TRAIN_FILE"
 sed -i "s|##LBCL|${LBCL}|g" "$TRAIN_FILE"
 sed -i "s|##RUN_NUM|${RUN_NUM}|g" "$TRAIN_FILE"
@@ -30,10 +30,10 @@ echo "Updated $TRAIN_FILE with EVENT=$EVENT, LBCL=$LBCL, RUN_NUM=$RUN_NUM"
 
 # === Start W&B sweep ===
 echo "Creating W&B sweep..."
-SWEEP_ID=$(wandb sweep sweep.yaml | awk '/Created sweep with ID:/ {print $NF}')
+SWEEP_ID=$(wandb sweep sweep.yml | awk '/Created sweep with ID:/ {print $NF}')
 
 if [ -z "$SWEEP_ID" ]; then
-  echo "Failed to create sweep. Check your sweep.yaml configuration."
+  echo "Failed to create sweep. Check your sweep.yml configuration."
   exit 1
 fi
 
