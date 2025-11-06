@@ -34,6 +34,11 @@ from itertools import cycle
 from datasets import load_from_disk, load_dataset
 import time
 
+sys.path.append("C:/Users/gd3470/Desktop/ssl/utils")
+from run_humaid import get_paths
+
+import wandb
+
 # Pick the largest value the platform allows
 SAFE_LIMIT = 2**31 - 1  # max signed 32-bit int
 csv.field_size_limit(min(sys.maxsize, SAFE_LIMIT))
@@ -76,9 +81,62 @@ parser.add_argument('--consistency',action='store_true')
 parser.add_argument('--high_mixup',action='store_true',default=False)
 parser.add_argument('--multigpus',action='store_true')
 parser.add_argument('--unlabeled_batch_size',type=int,default=32)
+parser.add_argument('--set_num', type=int, default=None)
 args = parser.parse_args()
-print(args)
 
+# Construct optional grouping and tagging info
+args.do_train = True
+args.do_evaluate = True
+args.pseudo_label_by_normalized = True
+args.ssl = True
+args.mixup = True
+
+event = "TODO"
+lbcl = "TODO"
+run_num = None # TODO
+
+group_name = f'{event}_{lbcl}'
+tags = [args.task,event,lbcl]
+
+# Initialize W&B run safely
+wandb.init(
+    project="humaid_ssl",
+    config=vars(args),
+    mode="online",
+    group=group_name,
+    tags=tags
+)
+
+config = wandb.config
+
+args.seed = config.seed
+args.task = config.task
+args.model = config.model
+args.max_seq_length = config.max_seq_length
+
+args.learning_rate = config.learning_rate
+args.batch_size = config.batch_size
+# args.batch_size = 8
+args.T = config.T
+args.epochs = config.epochs
+# args.epochs = 1
+
+paths = get_paths(event, lbcl, config.set_num)
+# paths = get_paths(event, lbcl, 1, run_num)
+args.dev_path = paths["dev_path"]
+args.test_path = paths["test_path"]
+args.labeled_train_path = paths["train_labeled_path"]
+args.unlabeled_train_path = paths["train_unlabeled_path"]
+args.output_path = fr"{paths['vmatch_out']}/preds.json"
+args.ckpt_path = fr"{paths['vmatch_out']}/model.pt"
+
+# unique run name (timestamped) to avoid overwriting
+wandb.run.name = (
+    f"{args.task}-{getattr(args, 'event', 'noevent')}"
+    f"-lb{getattr(args, 'lbcl', 'nolb')}-{int(time.time())}"
+)
+
+print(args)
 
 assert args.task in ('SNLI', 'MNLI', 'QQP', 'TwitterPPDB', 'SWAG', 'HellaSWAG', 'SICK','RTE','FEVER','HANS','CrisisMMDINF', 'HumAID')
 assert args.model in ('bert-base-uncased', 'roberta-base', 'bert-large-uncased', 'vinai/bertweet-base')
@@ -1250,6 +1308,14 @@ if args.multigpus:
     model = nn.DataParallel(model)
 processor = select_processor()
 
+# [wandb-B] track model and define metrics
+wandb.watch(model, log="all", log_freq=100)
+wandb.define_metric("epoch")
+wandb.define_metric("train_loss", step_metric="epoch")
+wandb.define_metric("eval_loss", step_metric="epoch")
+wandb.define_metric("eval_acc", step_metric="epoch")
+wandb.define_metric("macro-F1", step_metric="epoch")
+
 
 if args.model == 'vinai/bertweet-base':
     # BERTweet: RoBERTa-like tokenizer; normalization helps on noisy Twitter text.
@@ -1308,6 +1374,14 @@ if args.do_train:
             f'eval loss = {eval_loss:.6f} | '
             f'eval acc = {eval_acc:.6f} '
         )
+        # [wandb-C] log epoch-level metrics
+        wandb.log({
+            "epoch": epoch,
+            "train_loss": train_loss,
+            "eval_loss": eval_loss,
+            "eval_acc": eval_acc
+        })
+
 
 
 
@@ -1491,5 +1565,11 @@ if args.do_evaluate:
         'macro-F1': f1_score(y_true, y_pred, average='macro'),
         'confidence': np.mean(y_conf),
     }
+    # [wandb-D] log final macro-F1 for sweeps and summaries
+    wandb.log({"macro-F1": results_dict["macro-F1"]})
+    wandb.run.summary["final_macro-F1"] = results_dict["macro-F1"]
+    wandb.run.summary["final_eval_acc"] = results_dict["accuracy"]
+    wandb.finish()
+
     for k, v in results_dict.items():
         print(f'{k} = {v}')
