@@ -132,8 +132,8 @@ args.ckpt_path = fr"{paths['vmatch_out']}/model.pt"
 
 # unique run name (timestamped) to avoid overwriting
 wandb.run.name = (
-    f"{args.task}-{getattr(args, 'event', 'noevent')}"
-    f"-lb{getattr(args, 'lbcl', 'nolb')}-{int(time.time())}"
+    f"{args.task}-{event}"
+    f"-lb{lbcl}-{int(time.time())}"
 )
 
 print(args)

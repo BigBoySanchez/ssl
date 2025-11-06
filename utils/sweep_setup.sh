@@ -29,17 +29,5 @@ sed -i "s|##RUN_NUM|${RUN_NUM}|g" "$TRAIN_FILE"
 echo "Updated $TRAIN_FILE with EVENT=$EVENT, LBCL=$LBCL, RUN_NUM=$RUN_NUM"
 
 # === Start W&B sweep ===
-echo "Creating W&B sweep..."
-SWEEP_ID=$(wandb sweep sweep.yml | awk '/Created sweep with ID:/ {print $NF}')
-
-if [ -z "$SWEEP_ID" ]; then
-  echo "Failed to create sweep. Check your sweep.yml configuration."
-  exit 1
-fi
-
-echo "Sweep created: $SWEEP_ID"
-
-# === Run W&B agent ===
-# (Ensure WANDB_ENTITY and WANDB_PROJECT are set, or edit below)
-wandb agent "${WANDB_ENTITY}/${WANDB_PROJECT}/${SWEEP_ID}"
-
+echo "Running W&B sweep..."
+$(wandb sweep --project humaid_ssl sweep.yml 2>&1 | tail -n1 | sed 's/.*Run sweep agent with: //')
