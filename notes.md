@@ -1,8 +1,25 @@
-# 11/-6
+# 11/06
 ## NOTES
-- event runs replace old events
-- why does it make 2 workspaces
-- epoch from config not passing into train
+- map label names to numbers to _reduce_ "fake" labels
+- optimize on dev, then check test (alr doing this)
+- irma dev has 958 samples, paper shows 954 (i'm right doe)
+- dspy prompt optimizing
+
+## Status
+- tried 4o test labelling, but it didn't follow the labels i gave it
+- using wandb now
+- 1 event sweep (grid search) per gpu
+- kaikoura earthquake still going strong
+- rn, doing runs on event w/ most data (irma) & least data (kaikoura eq)
+
+## Plans
+- remove pseudo_labeled_by_normalized
+- use multi-gpu + pick 2-3 events setup
+
+## Q's
+- can i add everyone to my wandb project?
+- can i do bayesian search?
+
 
 # 10/30
 ## NOTES
