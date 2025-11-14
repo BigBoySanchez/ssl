@@ -909,17 +909,7 @@ def train(d1,d2=None,aug=None,epoch=0):
         pbar4 = tqdm(total=len(d2_loader))
 
 
-        # folder = args.output_path.split("_")[2].replace(".json",'') # ORIGINAL
-        folder = "./temp"
-        if not os.path.exists(folder):
-            os.mkdir(folder)
-        unlabeled_not_used = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_dataitself_discard_per_iter_dueToVerification_verifyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")
-        average_tracking = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_avgConf_verifyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")
-        confidence_tracking = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_Conf_verifyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")
-        
-        discard_info = open("./"+folder+"/"+args.task + "_" +str(epoch)+"_datanumber_discard_per_iter_dueToVerification_verifyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")
-        low_file = open("./"+folder+"/"+args.task + "_" +str(epoch) + "_low_verfiyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")
-        high_file = open("./"+folder+"/"+args.task + "_" +str(epoch) + "_high_verifyMatch_bs"+str(args.batch_size)+".txt","w",encoding="utf-8")
+        # Removed manual artifact files — wandb handles artifacting now.
         for i, (dataset1, dataset2) in enumerate(zip(cycle(d1_loader),d2_loader)):
             optimizer.zero_grad()
             inputs1, labels1 = dataset1
@@ -1024,19 +1014,10 @@ def train(d1,d2=None,aug=None,epoch=0):
             filtered_labels  = filtered_labels[:filtered_idx]   # [U]
             filtered_prob    = filtered_prob[:filtered_idx]
 
-            # write out unused unlabeled if you need (left as-is)
-            for u_idx, u in enumerate(usage_check):
-                if u == -1:
-                    unlabeled_not_used.write(
-                        str(original_unlabeled[u_idx]) + "\t" +
-                        str(original_true_labels2[u_idx].data.tolist()) + "\t" +
-                        str(original_idx[u_idx].data.tolist()) + "\n"
-                    )
+            # manual artifacting removed (wandb handles artifacts)
 
             # set avg threshold (global mean or your per-class variant)
             avg_prob = torch.mean(filtered_prob) if filtered_prob.numel() > 0 else torch.tensor(0., device=filtered_prob.device)
-            average_tracking.write(str(avg_prob.item()) + "\n")
-            confidence_tracking.write(str(filtered_prob.data.tolist()) + "\n")
 
             # split matched into high/low by confidence (still CLS only)
             low_output  = cuda(torch.zeros([int(filtered_outputs.shape[0]), H]))
@@ -1049,14 +1030,10 @@ def train(d1,d2=None,aug=None,epoch=0):
                 if filtered_prob[k] >= avg_prob:
                     high_output[high_idx]     = filtered_outputs[k]
                     high_true_labels[high_idx]= filtered_labels[k]
-                    high_file.write(str(original_unlabeled[k])+"\t"+str(filtered_prob[k].item())+"\t"+
-                                    str(filtered_labels[k].item())+"\t"+str(filtered_labels[k].item())+"\n")
                     high_idx += 1
                 else:
                     low_output[low_idx]       = filtered_outputs[k]
                     low_true_labels[low_idx]  = filtered_labels[k]
-                    low_file.write(str(original_unlabeled[k])+"\t"+str(filtered_prob[k].item())+"\t"+
-                                str(filtered_labels[k].item())+"\t"+str(filtered_labels[k].item())+"\n")
                     low_idx += 1
 
             high_output     = high_output[:high_idx]           # [Hh, H]
@@ -1140,13 +1117,10 @@ def train(d1,d2=None,aug=None,epoch=0):
             verifier_prob = filtered_prob[:filtered_idx]
             verifier_label = filtered_labels[:filtered_idx]
 
-            for u_idx, u in enumerate(usage_check):
-                if u == -1:
-                    unlabeled_not_used.write(str(original_unlabeled[u_idx])+"\t"+ str(original_true_labels2[u_idx].data.tolist())+"\t"+str(original_idx[u_idx].data.tolist())+"\n")
+            # manual artifacting removed (wandb handles artifacts)
             discard_per_iter.append(discard_count)
             avg_prob = torch.mean(verifier_prob)
-            average_tracking.write(str(avg_prob.data.tolist())+"\n")
-            confidence_tracking.write(str(verifier_prob.data.tolist())+"\n")
+            # manual artifacting removed (wandb handles artifacts)
             ## When using median model confidence
             #avg_prob = torch.median(prob)
             ## When using fixed high threshold value
@@ -1160,13 +1134,13 @@ def train(d1,d2=None,aug=None,epoch=0):
                 if verifier_prob[k] >= avg_prob:
                     high_output[high_idx] = output2[k]
                     high_true_labels[high_idx] = verifier_label[k]#cuda(torch.tensor(idx[k].data.tolist(),dtype=torch.int64))#true_labels2[k]#idx[k]#true_labels2[k]
-                    high_file.write(str(original_unlabeled[k])+"\t" +str(verifier_prob[k].data.tolist())+"\t"+ str(verifier_label[k].data.tolist())+"\t" + str(true_labels2[k].data.tolist())+"\n")
+                    # manual artifacting removed (wandb handles artifacts)
                     high_count += 1
                     high_idx += 1
                 else:
                     low_output[low_idx] = output2[k]
                     low_true_labels[low_idx] = verifier_label[k]#true_labels2[k]
-                    low_file.write(str(original_unlabeled[k])+"\t" +str(verifier_prob[k].data.tolist())+"\t"+ str(verifier_label[k].data.tolist())+"\t" + str(true_labels2[k].data.tolist())+"\n")
+                    # manual artifacting removed (wandb handles artifacts)
                     low_count += 1
                     low_idx += 1
             high_true_labels = high_true_labels[:high_idx]
@@ -1247,10 +1221,7 @@ def train(d1,d2=None,aug=None,epoch=0):
                 nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
             optimizer.step()
         
-        discard_info.write(str(discard_per_iter)+"\n")
-        discard_info.write(str(total_num)+'\n')
-        discard_info.write(str(sum(discard_per_iter)/len(discard_per_iter))+"\n")
-        discard_info.write(str(unlabeled_not_used_count)+"\n")
+        # manual artifacting removed (wandb handles artifacts)
         return train_loss / (len(d1_loader)+len(d2_loader))
     else:
         train_loader = tqdm(load(d1, args.batch_size, True))
