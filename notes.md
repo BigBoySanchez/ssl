@@ -1,3 +1,12 @@
+# 11/13
+## NOTES
+- JUST GET LBCL 50 RESULTS FOR _ALL_ EVENTS USING LAST WEEK'S CODE
+- professor will double-check patch for pseudo_label_by_normalized
+   - patched code is in /verifymatch/train_no_normalized.py
+- fix up spreadsheet and add wandb results
+- keep thinking abt infra, might save hella time 
+   - hopefully enough for the conf
+
 # 11/06
 ## NOTES
 - map label names to numbers to _reduce_ "fake" labels
