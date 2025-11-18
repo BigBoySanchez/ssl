@@ -8,13 +8,13 @@ ENTITY="jacoba-california-state-university-east-bay"
 PROJECT="humaid_ssl"
 IMAGE="cahsi/disaster-ssl:cuda12-py2.2"
 MAX_GPUS=7
-SWEEP_ID_FILE="/workspace/ssl/artifacts/sweep_ids.txt"   # one sweep ID per line
+SWEEP_ID_FILE="sweep_ids.txt"   # one sweep ID per line
 
 # ──────────────────────────────────────────────
 # DATA / ARTIFACT PATHS
 # ──────────────────────────────────────────────
-DATA_MOUNT="~/data:/workspace/ssl/data"
-ARTIFACT_MOUNT="~/artifacts:/workspace/ssl/artifacts"
+DATA_MOUNT="${HOME}/data:/workspace/ssl/data"
+ARTIFACT_MOUNT="${HOME}/artifacts:/workspace/ssl/artifacts"
 
 # ──────────────────────────────────────────────
 # EVENTS AND LBCL COMBOS
@@ -65,15 +65,15 @@ launch_agent() {
       -v ${ARTIFACT_MOUNT} \
       --name "${cname}" \
       "${IMAGE}" \
-      bash -c "
-        apt-get update -y && apt-get install git -y
-        cd ./ssl &&
-        git pull &&
-        cd ./verifymatch &&
-        echo '[Agent ${gpu_id}] Running sweep ${sweep_id} (${event} ${lbcl}lbcl)' &&
-        wandb agent --count 30 ${ENTITY}/${PROJECT}/${sweep_id} &&
-        echo '[Agent ${gpu_id}] Sweep ${sweep_id} finished.'
-      "
+      bash -c '
+        apt-get update -y && apt-get install -y --no-install-recommends git && \
+        cd /workspace/ssl && \
+        git fetch origin && git reset --hard origin/main && \
+        cd verifymatch && \
+        echo "[Agent '${gpu_id}'] Running sweep '${sweep_id}' ('${event}' '${lbcl}'lbcl)" && \
+        wandb agent --count 30 '${ENTITY}'/'${PROJECT}'/'${sweep_id}' && \
+        echo "[Agent '${gpu_id}'] Sweep '${sweep_id}' finished."
+    '
 }
 
 # ──────────────────────────────────────────────
