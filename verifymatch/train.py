@@ -69,7 +69,7 @@ parser.add_argument('--labeled_train_path', type=str, help='labeled train datase
 parser.add_argument('--unlabeled_train_path', type=str, help='unlabeled train dataset path')
 parser.add_argument('--ssl',action='store_true',help='Semi-supervised learning')
 parser.add_argument('--mixup',action='store_true')
-parser.add_argument('--pseudo_label_by_normalized',action='store_true')
+parser.add_argument('--pseudo_label_by_normalized',type=bool)
 parser.add_argument('--same_domain_unlabeled',action='store_true')
 parser.add_argument('--th', type=float, default=0.7)
 parser.add_argument('--sharpening',action='store_true',default=True)
@@ -85,16 +85,15 @@ parser.add_argument('--set_num', type=int, default=None)
 args = parser.parse_args()
 
 # Construct optional grouping and tagging info
-args.device = int("##DEVICE_ID")
 args.do_train = True
 args.do_evaluate = True
-args.pseudo_label_by_normalized = True
+# args.pseudo_label_by_normalized = True
 args.ssl = True
 args.mixup = True
 
-event = "##EVENT"
-lbcl = "##LBCL"
-run_num = "##RUN_NUM"
+event = os.getenv("EVENT_NAME", "california_wildfires_2018")
+lbcl = os.getenv("LBCL_SIZE", "5")
+run_num = os.getenv("WANDB_RUN_ID", str(int(time.time())))
 
 group_name = f'{event}_{lbcl}'
 tags = [args.task,event,lbcl]
@@ -110,6 +109,21 @@ wandb.init(
 
 config = wandb.config
 
+# Override args with sweep config values
+args.learning_rate = config.learning_rate
+args.weight_decay = config.weight_decay
+args.batch_size = config.batch_size
+args.epochs = config.epochs
+args.T = config.T
+args.mixup_loss_weight = config.mixup_loss_weight
+args.label_smoothing = config.label_smoothing
+args.max_grad_norm = config.max_grad_norm
+args.th = config.th
+args.task = config.task
+args.model = config.model
+args.max_seq_length = config.max_seq_length
+
+
 args.seed = config.seed
 args.task = config.task
 args.model = config.model
@@ -121,15 +135,6 @@ args.batch_size = config.batch_size
 args.T = config.T
 args.epochs = config.epochs
 # args.epochs = 1
-
-paths = get_paths(event, lbcl, config.set_num)
-# paths = get_paths(event, lbcl, 1, run_num)
-args.dev_path = paths["dev_path"]
-args.test_path = paths["test_path"]
-args.labeled_train_path = paths["train_labeled_path"]
-args.unlabeled_train_path = paths["train_unlabeled_path"]
-args.output_path = fr"{paths['vmatch_out']}/preds.json"
-args.ckpt_path = fr"{paths['vmatch_out']}/model.pt"
 
 # unique run name (timestamped) to avoid overwriting
 wandb.run.name = (
@@ -1172,7 +1177,17 @@ def train(d1,d2=None,aug=None,epoch=0):
                     output1 = output1[select_idx]
                     labels1 = labels1[select_idx]
                     labels1_onehot = smoothing_label(labels1,smoothing_val)
-                    mixup_output = output1 * lam + to_be_mixed_output * (1-lam)
+
+                    if not args.pseudo_label_by_normalized:
+                        # PSEUDO_LABEL PATCH
+                        cls1 = take_cls(output1)
+                        K = min(cls1.size(0), to_be_mixed_output.size(0))
+                        idx_lab = torch.randperm(cls1.size(0))[:K]
+                        idx_pool = torch.randperm(to_be_mixed_output.size(0))[:K]
+                        mixup_output = cls1[idx_lab] * lam + to_be_mixed_output[idx_pool] * (1 - lam)
+                    else:
+                        mixup_output = output1 * lam + to_be_mixed_output * (1-lam)
+
                     mixup_label = labels1_onehot * lam + to_be_mixed_label * (1-lam)
                 if args.multigpus:
                     high_logits = model.module.classifier(high_output)
@@ -1301,23 +1316,6 @@ else:
 
 criterion = nn.CrossEntropyLoss()
 
-if args.ssl:
-    d1 = TextDataset(args.labeled_train_path,processor)
-    d2 = TextDataset(args.unlabeled_train_path,processor)
-    print(f'labeled train samples = {len(d1)}')
-    print(f'unlabeled train samples = {len(d2)}')
-else:
-    if args.train_path:
-        train_dataset = TextDataset(args.train_path, processor)
-        print(f'train samples = {len(train_dataset)}')
-if args.dev_path:
-    dev_dataset = TextDataset(args.dev_path, processor)
-    print(f'dev samples = {len(dev_dataset)}')
-if args.test_path:
-    test_dataset = TextDataset(args.test_path, processor)
-    print(f'test samples = {len(test_dataset)}')
-
-
 if args.task == 'MNLI':
     test_processor = MNLITESTProcessor()
     # test_processor = globals()[f'MNLITESTProcessor']()
@@ -1327,221 +1325,145 @@ if args.task == 'MNLI':
     mismatch_dataset = TextDataset(mm_path,test_processor)
 
 
-if args.do_train:
-    print()
-    print('*** training ***')
-    best_acc = -float('inf')
-    for epoch in range(1, args.epochs + 1):
-        if args.ssl:
-            train_loss = train(d1=d1, d2=d2, epoch=epoch)
+
+# ===============================================================
+# Averaged sweep-compatible training: one W&B run per config
+# ===============================================================
+set_nums = [1, 2, 3]
+seeds = [67, 77]
+
+macro_f1_scores, acc_scores = [], []
+
+for set_num in set_nums:
+    for seed in seeds:
+        sub_run_start = time.time()
+        args.set_num = set_num
+        args.seed = seed
+        print(f"\n=== Running set_num={set_num}, seed={seed} ===\n")
+
+        # Update dataset paths
+        paths = get_paths(event, lbcl, args.set_num)
+        args.dev_path = paths["dev_path"]
+        args.test_path = paths["test_path"]
+        args.labeled_train_path = paths["train_labeled_path"]
+        args.unlabeled_train_path = paths["train_unlabeled_path"]
+        args.output_path = fr"{paths['vmatch_out']}/preds_set{set_num}_seed{seed}.json"
+        args.ckpt_path = fr"{paths['vmatch_out']}/model_set{set_num}_seed{seed}.pt"
+
+        # Reinitialize model + tokenizer for each seed
+        model = cuda(Model())
+        if args.multigpus:
+            model = nn.DataParallel(model)
+        processor = select_processor()
+
+        if args.model == 'vinai/bertweet-base':
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False, normalization=True)
+            except TypeError:
+                tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
         else:
-            train_loss = train(d1=train_dataset, epoch=epoch)
-        eval_loss, eval_acc = evaluate(dev_dataset)
-        if eval_acc > best_acc:
-            best_acc = eval_acc
-            torch.save(model.state_dict(), args.ckpt_path)
-        print(
-            f'epoch = {epoch} | '
-            f'train loss = {train_loss:.6f} | '
-            f'eval loss = {eval_loss:.6f} | '
-            f'eval acc = {eval_acc:.6f} '
-        )
-        # [wandb-C] log epoch-level metrics
+            tokenizer = AutoTokenizer.from_pretrained(args.model)
+
+        criterion = nn.CrossEntropyLoss()
+
+        if args.ssl:
+            d1 = TextDataset(args.labeled_train_path, processor)
+            d2 = TextDataset(args.unlabeled_train_path, processor)
+            print(f'labeled train samples = {len(d1)}')
+            print(f'unlabeled train samples = {len(d2)}')
+        else:
+            train_dataset = TextDataset(args.train_path, processor)
+            print(f'train samples = {len(train_dataset)}')
+
+        if args.dev_path:
+            dev_dataset = TextDataset(args.dev_path, processor)
+            print(f'dev samples = {len(dev_dataset)}')
+        if args.test_path:
+            test_dataset = TextDataset(args.test_path, processor)
+            print(f'test samples = {len(test_dataset)}')
+
+
+        # === Training loop ===
+        best_acc = -float('inf')
+        for epoch in range(1, args.epochs + 1):
+            start_time = time.time()
+
+            # --- training step ---
+            if args.ssl:
+                train_loss = train(d1=d1, d2=d2, epoch=epoch)
+            else:
+                train_loss = train(d1=train_dataset, epoch=epoch)
+
+            # --- evaluation step ---
+            eval_loss, eval_acc = evaluate(dev_dataset)
+
+            # --- keep best checkpoint ---
+            if eval_acc > best_acc:
+                best_acc = eval_acc
+                torch.save(model.state_dict(), args.ckpt_path)
+
+            # --- log + print ---
+            elapsed = time.time() - start_time
+            print(f"[set {set_num} seed {seed}] epoch {epoch}/{args.epochs} "
+                f"| train={train_loss:.4f} | val_loss={eval_loss:.4f} "
+                f"| val_acc={eval_acc:.2f} | time={elapsed/60:.2f} min")
+
+            wandb.log({
+                "set_num": set_num,
+                "seed": seed,
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "eval_loss": eval_loss,
+                "eval_acc": eval_acc,
+                "epoch_time_min": elapsed / 60
+            })
+
+
+        # === Test evaluation ===
+        model.load_state_dict(torch.load(args.ckpt_path))
+        model.eval()
+        test_loader = tqdm(load(test_dataset, args.batch_size, False))
+        y_true, y_pred, y_conf = [], [], []
+        for i, (inputs, label) in enumerate(test_loader):
+            with torch.no_grad():
+                output = model(inputs[0], inputs[1], inputs[2])
+                if args.ssl:
+                    logits = model.module.classifier(output[0][:,0]) if args.multigpus else model.classifier(output[0][:,0])
+                else:
+                    logits = output
+                probs = F.softmax(logits, dim=-1)
+                y_pred.extend(probs.argmax(dim=-1).cpu().numpy().tolist())
+                y_true.extend(label.cpu().numpy().tolist())
+                y_conf.extend(probs.max(dim=-1).values.cpu().numpy().tolist())
+
+        f1 = f1_score(y_true, y_pred, average='macro')
+        acc = accuracy_score(y_true, y_pred)
+        macro_f1_scores.append(f1)
+        acc_scores.append(acc)
+        subrun_duration = time.time() - sub_run_start
+        print(f"✅ Completed set={set_num}, seed={seed} | F1={f1:.4f} | "
+            f"Acc={acc:.4f} | duration={subrun_duration/60:.1f} min")
+
         wandb.log({
-            "epoch": epoch,
-            "train_loss": train_loss,
-            "eval_loss": eval_loss,
-            "eval_acc": eval_acc
+            "set_num": set_num,
+            "seed": seed,
+            "sub_macro-F1": f1,
+            "sub_acc": acc,
+            "subrun_time_min": subrun_duration / 60
         })
 
+# === After all runs, average results ===
+mean_f1 = np.mean(macro_f1_scores)
+std_f1 = np.std(macro_f1_scores)
+mean_acc = np.mean(acc_scores)
 
+wandb.log({
+    "macro-F1": mean_f1,
+    "macro-F1_std": std_f1,
+    "final_eval_acc": mean_acc
+})
+wandb.finish()
 
-
-if args.do_evaluate:
-    if not os.path.exists(args.ckpt_path):
-        raise RuntimeError(f'\'{args.ckpt_path}\' does not exist')
-    
-    print()
-    print('*** evaluating ***')
-
-    output_dicts = []
-    model.load_state_dict(torch.load(args.ckpt_path))
-    model.eval()
-
-    # b/c mnli has two test sets
-    if args.task == 'MNLI':
-        match_loader = tqdm(load(match_dataset,args.batch_size,False))
-        mmatch_loader = tqdm(load(mismatch_dataset,args.batch_size,False))
-
-        for i, (inputs, label) in enumerate(match_loader):
-            with torch.no_grad():
-                #if args.consistency_learning or args.noisy_label:
-                if args.ssl:
-                    output = model(inputs[0],inputs[1],inputs[2])
-                    if args.task in ('SNLI','MNLI','SICK','RTE'):
-                        if args.multigpus:
-                            logits = model.module.classifier(output[0][:,0])
-                        else:
-                            logits = model.classifier(output[0][:,0])
-                    elif args.task in ('SWAG'):
-                        logits = model.classifier(output[1])
-                        logits = logits.view(-1,model.n_choices)
-                else:
-                    logits = model(inputs[0],inputs[1],inputs[2])
-                for j in range(logits.size(0)):
-                    probs = F.softmax(logits[j], -1)
-                    output_dict = {
-                        'index': args.batch_size * i + j,
-                        'true': label[j].item(),
-                        'pred': logits[j].argmax().item(),
-                        'conf': probs.max().item(),
-                        'logits': logits[j].cpu().numpy().tolist(),
-                        'probs': probs.cpu().numpy().tolist(),
-                    }
-                    output_dicts.append(output_dict)
-
-        print(f'writing outputs of matched...')
-
-        write_path = args.output_path.replace(".json","")
-        write_path = write_path + "_m.json"
-        with open(write_path, 'w+') as f:
-            for i, output_dict in enumerate(output_dicts):
-                output_dict_str = json.dumps(output_dict)
-                f.write(f'{output_dict_str}\n')
-
-        y_true = [output_dict['true'] for output_dict in output_dicts]
-        y_pred = [output_dict['pred'] for output_dict in output_dicts]
-        y_conf = [output_dict['conf'] for output_dict in output_dicts]
-
-        accuracy = accuracy_score(y_true, y_pred) * 100.
-        f1 = f1_score(y_true, y_pred, average='macro') * 100.
-        confidence = np.mean(y_conf) * 100.
-
-        results_dict = {
-            'accuracy': accuracy_score(y_true, y_pred) * 100.,
-            'macro-F1': f1_score(y_true, y_pred, average='macro') * 100.,
-            'confidence': np.mean(y_conf) * 100.,
-        }
-        for k, v in results_dict.items():
-            print(f'{k} = {v}')
-
-        for i, (inputs, label) in enumerate(mmatch_loader):
-            with torch.no_grad():
-                #if args.consistency_learning or args.noisy_label:
-                if args.ssl:
-                    output = model(inputs[0],inputs[1],inputs[2])
-                    if args.task in ('SNLI','MNLI','SICK','RTE','CrisisMMDINF', 'HumAID'):
-
-                        if args.multigpus:
-                            logits = model.module.classifier(output[0][:,0])
-                        else:
-                            logits = model.classifier(output[0][:,0])
-                    elif args.task in ('SWAG'):
-                        logits = model.classifier(output[1])
-                        logits = logits.view(-1,model.n_choices)
-                else:
-                    logits = model(inputs[0],inputs[1],inputs[2])
-                for j in range(logits.size(0)):
-                    probs = F.softmax(logits[j], -1)
-                    output_dict = {
-                        'index': args.batch_size * i + j,
-                        'true': label[j].item(),
-                        'pred': logits[j].argmax().item(),
-                        'conf': probs.max().item(),
-                        'logits': logits[j].cpu().numpy().tolist(),
-                        'probs': probs.cpu().numpy().tolist(),
-                    }
-                    output_dicts.append(output_dict)
-
-        print(f'writing outputs mismatched...')
-
-        write_path = args.output_path.replace(".json","")
-        write_path = write_path + "_mm.json"
-        with open(write_path, 'w+') as f:
-            for i, output_dict in enumerate(output_dicts):
-                output_dict_str = json.dumps(output_dict)
-                f.write(f'{output_dict_str}\n')
-
-        y_true = [output_dict['true'] for output_dict in output_dicts]
-        y_pred = [output_dict['pred'] for output_dict in output_dicts]
-        y_conf = [output_dict['conf'] for output_dict in output_dicts]
-
-        accuracy = accuracy_score(y_true, y_pred) * 100.
-        f1 = f1_score(y_true, y_pred, average='macro') * 100.
-        confidence = np.mean(y_conf) * 100.
-
-        results_dict = {
-            'accuracy': accuracy_score(y_true, y_pred) * 100.,
-            'macro-F1': f1_score(y_true, y_pred, average='macro') * 100.,
-            'confidence': np.mean(y_conf) * 100.,
-        }
-        for k, v in results_dict.items():
-            print(f'{k} = {v}')
-
-        
-    test_loader = tqdm(load(test_dataset, args.batch_size, False))
-    for i, (inputs, label) in enumerate(test_loader):
-        with torch.no_grad():
-            if args.ssl:
-                output = model(inputs[0],inputs[1],inputs[2])
-                if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','HANS','CrisisMMDINF', 'HumAID'):
-                    if args.multigpus:
-                        logits = model.module.classifier(output[0][:,0])
-                    else:
-                        logits = model.classifier(output[0][:,0])
-                elif args.task in ('SWAG'):
-                    logits = model.classifier(output[1])
-                    logits = logits.view(-1,model.n_choices)
-            else:
-                logits = model(inputs[0],inputs[1],inputs[2])
-            
-            for j in range(logits.size(0)):
-                # reduce 3-class logits to 2-class logits for HANS
-                if args.task == 'HANS':
-                    new_logits = cuda(torch.tensor([logits[j][0],logits[j][1]+logits[j][2]]))
-                else:
-                    new_logits = logits[j]
-                probs = F.softmax(new_logits, -1)
-                output_dict = {
-                    'id': inputs[3][j].item() if isinstance(inputs[3][j], torch.Tensor) else inputs[3][j],
-                    'true': label[j].item(),
-                    'pred': new_logits.argmax().item(),
-                    'conf': probs.max().item(),
-                    'logits': logits[j].cpu().numpy().tolist(),
-                    'probs': probs.cpu().numpy().tolist(),
-                }
-                output_dicts.append(output_dict)
-
-    print(f'writing outputs to \'{args.output_path}\'')
-
-    with open(args.output_path, 'w+') as f:
-        for i, output_dict in enumerate(output_dicts):
-            output_dict_str = json.dumps(output_dict)
-            f.write(f'{output_dict_str}\n')
-
-    csv_path = args.output_path.replace(".json", ".csv")
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["id", "gold", "pred"])
-        for output_dict in output_dicts:
-            writer.writerow([output_dict["id"], output_dict["true"], output_dict["pred"]])
-
-    print(f"[csv] wrote predictions to {csv_path}")
-
-    y_true = [output_dict['true'] for output_dict in output_dicts]
-    y_pred = [output_dict['pred'] for output_dict in output_dicts]
-    y_conf = [output_dict['conf'] for output_dict in output_dicts]
-
-    results_dict = {
-        'accuracy': accuracy_score(y_true, y_pred),
-        'macro-F1': f1_score(y_true, y_pred, average='macro'),
-        'confidence': np.mean(y_conf),
-    }
-    # [wandb-D] log final macro-F1 for sweeps and summaries
-    wandb.log({"macro-F1": results_dict["macro-F1"]})
-    wandb.run.summary["final_macro-F1"] = results_dict["macro-F1"]
-    wandb.run.summary["final_eval_acc"] = results_dict["accuracy"]
-    wandb.finish()
-
-    for k, v in results_dict.items():
-        print(f'{k} = {v}')
+print(f"\n=== Averaged Results ===")
+print(f"Mean F1: {mean_f1:.4f} ± {std_f1:.4f}")
+print(f"Mean Acc: {mean_acc:.4f}")

@@ -6,3 +6,5 @@
 **/10
 **/temp
 **/.env
+**/__pycache__
+**/wandb
