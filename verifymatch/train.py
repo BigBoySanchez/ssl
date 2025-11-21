@@ -1615,9 +1615,9 @@ wandb.log({ old_sweep_metric_name: float(mean_dev_f1) })
 wandb.run.summary[old_sweep_metric_name] = float(mean_dev_f1)
 
 wandb.log({
-    "macro-F1": mean_f1,
-    "macro-F1_std": std_f1,
-    "final_eval_acc": mean_acc,
+    "test_macro-F1": mean_f1,
+    "test_macro-F1_std": std_f1,
+    "test_eval_acc": mean_acc,
     "dev_macro-F1": mean_dev_f1,
     "dev_macro-F1_std": std_dev_f1
 })
