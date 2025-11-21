@@ -82,7 +82,22 @@ parser.add_argument('--high_mixup',action='store_true',default=False)
 parser.add_argument('--multigpus',action='store_true')
 parser.add_argument('--unlabeled_batch_size',type=int,default=32)
 parser.add_argument('--set_num', type=int, default=None)
+parser.add_argument('--artifact_mode', type=str, default='best',
+                    choices=['none', 'best', 'periodic', 'all'],
+                    help="Which checkpoints to store as W&B Artifacts.")
+parser.add_argument('--artifact_every', type=int, default=1,
+                    help="If artifact_mode=periodic, save every N epochs.")
+parser.add_argument('--keep_local_ckpt', action='store_true',
+                    help="Keep local .pt files after logging artifacts (default: delete after upload).")
 args = parser.parse_args()
+
+def random_init(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Construct optional grouping and tagging info
 args.do_train = True
@@ -855,18 +870,6 @@ class Model(nn.Module):
                 logits = logits.view(-1, self.n_choices)
             return logits
 
-
-def smoothing_label(target, smoothing):
-    """Label smoothing"""
-    _n_classes = n_classes if args.task not in ('SWAG', 'HellaSWAG') else 4
-    confidence = 1. - smoothing
-    smoothing_value = smoothing / (_n_classes - 1)
-    one_hot = cuda(torch.full((_n_classes,), smoothing_value))
-    model_prob = one_hot.repeat(target.size(0), 1)
-    model_prob.scatter_(1, target.unsqueeze(1), confidence)
-    return model_prob
-
-
 prev_mean1 = cuda(torch.tensor(1.,dtype=torch.float))#, cuda(torch.tensor(1.,dtype=torch.float))
 prev_std1 = cuda(torch.tensor(1.,dtype=torch.float))#, cuda(torch.tensor(1.,dtype=torch.float))
 
@@ -1259,35 +1262,93 @@ def train(d1,d2=None,aug=None,epoch=0):
 
 
 def evaluate(dataset):
-    """Evaluates pre-trained model on development set."""
-
+    """Evaluates model; returns loss, accuracy(%), macro-F1."""
     model.eval()
-    eval_loss = 0.
-    eval_acc = 0. 
+    eval_loss = 0.0
     y_true, y_pred = [], []
     eval_loader = tqdm(load(dataset, args.batch_size, False))
-    for i, dataset in enumerate(eval_loader):
+    for i, batch in enumerate(eval_loader):
         with torch.no_grad():
-            inputs, labels = dataset
-            output = model(inputs[0],inputs[1],inputs[2])
+            inputs, labels = batch
+            output = model(inputs[0], inputs[1], inputs[2])
             if args.ssl:
-                if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','HANS','CrisisMMDINF', 'HumAID'):
-                    if args.multigpus:
-                        output = model.module.classifier(output[0][:,0])
-                    else:
-                        output = model.classifier(output[0][:, 0])
+                if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','HANS','CrisisMMDINF','HumAID'):
+                    output = model.module.classifier(output[0][:,0]) if args.multigpus else model.classifier(output[0][:,0])
                 elif args.task in ('SWAG'):
-                    output = model.classifier(output[1])
-                    output = output.view(-1,model.n_choices)
+                    output = model.classifier(output[1]).view(-1, model.n_choices)
 
-            for j in range(output.size(0)):
-                y_pred.append(output[j].argmax().item())
-                y_true.append(labels[j].item())
-            loss = criterion(output,labels)
+            y_pred.extend(output.argmax(dim=-1).cpu().tolist())
+            y_true.extend(labels.cpu().tolist())
+            loss = criterion(output, labels)
+
         eval_loss += loss.item()
-        eval_loader.set_description(f'eval loss = {(eval_loss / (i+1)):.6f}')
-    eval_acc = accuracy_score(y_true, y_pred) * 100.
-    return eval_loss / len(eval_loader), eval_acc
+        eval_loader.set_description(f"eval loss = {(eval_loss/(i+1)):.6f}")
+
+    eval_acc = accuracy_score(y_true, y_pred) * 100.0
+    eval_f1  = f1_score(y_true, y_pred, average='macro')
+    return (eval_loss / len(eval_loader)), eval_acc, eval_f1
+
+def predict(dataset, return_probs=True):
+    """
+    Run model inference over a dataset. Returns:
+      y_true: list[int]
+      y_pred: list[int]
+      y_conf: list[float] (if return_probs)
+      guids:  list[Any]   (best-effort)
+      texts:  list[str]   (best-effort)
+    """
+    model.eval()
+    y_true, y_pred, y_conf = [], [], []
+    guids, texts = [], []
+
+    loader = tqdm(load(dataset, args.batch_size, False))
+    with torch.no_grad():
+        for batch in loader:
+            inputs, labels = batch
+            out = model(inputs[0], inputs[1], inputs[2])
+
+            # -- same logits path as evaluate() --
+            if args.ssl:
+                if args.task in ('SNLI','MNLI','SICK','RTE','FEVER','QQP','HANS','CrisisMMDINF','HumAID'):
+                    logits = model.module.classifier(out[0][:,0]) if args.multigpus else model.classifier(out[0][:,0])
+                elif args.task in ('SWAG'):
+                    logits = model.classifier(out[1]).view(-1, model.n_choices)
+            else:
+                logits = out
+
+            probs = F.softmax(logits, dim=-1)
+            pred  = probs.argmax(dim=-1)
+
+            # collect labels/preds
+            y_true.extend(labels.cpu().tolist())
+            y_pred.extend(pred.cpu().tolist())
+            if return_probs:
+                y_conf.extend(probs.max(dim=-1).values.cpu().tolist())
+
+            # collect GUIDs (best-effort; may be [] in some loaders)
+            batch_guids = inputs[3]
+            if isinstance(batch_guids, (list, tuple)):
+                # ensure simple scalars/strings or fallback to ""
+                guids.extend([g if isinstance(g, (str, int)) else "" for g in batch_guids])
+            else:
+                try:
+                    guids.extend(batch_guids.cpu().numpy().tolist())
+                except Exception:
+                    guids.extend([""] * logits.size(0))
+
+            # collect text (you packaged each example text as a 1-element list)
+            batch_texts = inputs[4] if len(inputs) > 4 else [""] * logits.size(0)
+            flat_texts = []
+            for t in batch_texts:
+                if isinstance(t, list) and len(t) > 0:
+                    flat_texts.append(t[0])
+                elif isinstance(t, str):
+                    flat_texts.append(t)
+                else:
+                    flat_texts.append("")
+            texts.extend(flat_texts)
+
+    return y_true, y_pred, y_conf, guids, texts
 
 
 model = cuda(Model())
@@ -1298,10 +1359,17 @@ processor = select_processor()
 # [wandb-B] track model and define metrics
 wandb.watch(model, log="all", log_freq=100)
 wandb.define_metric("epoch")
+# Epoch time-series
+for key in ["train/loss", "val/loss", "val/acc", "val/f1", "epoch_time_min"]:
+    wandb.define_metric(key, step_metric="epoch")
+
 wandb.define_metric("train_loss", step_metric="epoch")
 wandb.define_metric("eval_loss", step_metric="epoch")
 wandb.define_metric("eval_acc", step_metric="epoch")
-wandb.define_metric("macro-F1", step_metric="epoch")
+wandb.define_metric("eval_f1", step_metric="epoch")
+wandb.define_metric("subrun")
+wandb.define_metric("best_dev_f1", step_metric="subrun")
+wandb.define_metric("best_epoch", step_metric="subrun")
 
 
 if args.model == 'vinai/bertweet-base':
@@ -1330,9 +1398,11 @@ if args.task == 'MNLI':
 # Averaged sweep-compatible training: one W&B run per config
 # ===============================================================
 set_nums = [1, 2, 3]
-seeds = [67, 77]
+seeds = [67]
 
 macro_f1_scores, acc_scores = [], []
+dev_f1_scores = []
+subrun_idx = 0
 
 for set_num in set_nums:
     for seed in seeds:
@@ -1384,7 +1454,8 @@ for set_num in set_nums:
 
 
         # === Training loop ===
-        best_acc = -float('inf')
+        best_dev_f1 = -float('inf')
+        best_epoch = -1
         for epoch in range(1, args.epochs + 1):
             start_time = time.time()
 
@@ -1395,73 +1466,162 @@ for set_num in set_nums:
                 train_loss = train(d1=train_dataset, epoch=epoch)
 
             # --- evaluation step ---
-            eval_loss, eval_acc = evaluate(dev_dataset)
+            eval_loss, eval_acc, eval_f1 = evaluate(dev_dataset)
 
-            # --- keep best checkpoint ---
-            if eval_acc > best_acc:
-                best_acc = eval_acc
+            # --- keep best checkpoint (by dev macro-F1) ---
+            if eval_f1 > best_dev_f1:
+                best_dev_f1 = eval_f1
+                best_epoch = epoch
                 torch.save(model.state_dict(), args.ckpt_path)
+                
+                if args.artifact_mode in ('best','all'):
+                    art_name = f"{args.task}-{event}-lb{lbcl}-set{set_num}-seed{seed}"
+                    artifact = wandb.Artifact(art_name, type="model",
+                                            metadata={
+                                                "task": args.task,
+                                                "event": event,
+                                                "lbcl": lbcl,
+                                                "set_num": set_num,
+                                                "seed": seed,
+                                                "epoch": epoch,
+                                                "dev_macro_f1": float(best_dev_f1),
+                                                "model_name": args.model,
+                                                "max_seq_length": args.max_seq_length,
+                                                "learning_rate": args.learning_rate,
+                                                "batch_size": args.batch_size,
+                                                "weight_decay": args.weight_decay
+                                            })
+                    artifact.add_file(args.ckpt_path, name="model.pt")
+                    wandb.log_artifact(artifact, aliases=["best", f"epoch-{epoch}"])
+
+            if args.artifact_mode in ('periodic','all'):
+                save_this_epoch = (args.artifact_mode == 'all') or (epoch % args.artifact_every == 0)
+                if save_this_epoch:
+                    tmp_ckpt = fr"{paths['vmatch_out']}/epoch{epoch}_set{set_num}_seed{seed}.pt"
+                    torch.save(model.state_dict(), tmp_ckpt)
+                    art_name = f"{args.task}-{event}-lb{lbcl}-set{set_num}-seed{seed}-epoch{epoch}"
+                    art = wandb.Artifact(art_name, type="model-epoch",
+                                        metadata={"epoch": epoch, "set_num": set_num, "seed": seed})
+                    art.add_file(tmp_ckpt, name="model.pt")
+                    wandb.log_artifact(art, aliases=[f"epoch-{epoch}"])
+                    if not args.keep_local_ckpt:
+                        try: os.remove(tmp_ckpt)
+                        except: pass
+
 
             # --- log + print ---
             elapsed = time.time() - start_time
             print(f"[set {set_num} seed {seed}] epoch {epoch}/{args.epochs} "
                 f"| train={train_loss:.4f} | val_loss={eval_loss:.4f} "
-                f"| val_acc={eval_acc:.2f} | time={elapsed/60:.2f} min")
+                f"| val_acc={eval_acc:.2f} | val_f1={eval_f1:.4f} "
+                f"| time={elapsed/60:.2f} min")
 
             wandb.log({
-                "set_num": set_num,
-                "seed": seed,
                 "epoch": epoch,
-                "train_loss": train_loss,
-                "eval_loss": eval_loss,
-                "eval_acc": eval_acc,
-                "epoch_time_min": elapsed / 60
+                "train/loss": train_loss,
+                "val/loss": eval_loss,
+                "val/acc": eval_acc,
+                "val/f1": eval_f1,
+                "epoch_time_min": elapsed / 60,
+                "set_num": set_num,
+                "seed": seed
             })
 
 
-        # === Test evaluation ===
-        model.load_state_dict(torch.load(args.ckpt_path))
-        model.eval()
-        test_loader = tqdm(load(test_dataset, args.batch_size, False))
-        y_true, y_pred, y_conf = [], [], []
-        for i, (inputs, label) in enumerate(test_loader):
-            with torch.no_grad():
-                output = model(inputs[0], inputs[1], inputs[2])
-                if args.ssl:
-                    logits = model.module.classifier(output[0][:,0]) if args.multigpus else model.classifier(output[0][:,0])
-                else:
-                    logits = output
-                probs = F.softmax(logits, dim=-1)
-                y_pred.extend(probs.argmax(dim=-1).cpu().numpy().tolist())
-                y_true.extend(label.cpu().numpy().tolist())
-                y_conf.extend(probs.max(dim=-1).values.cpu().numpy().tolist())
-
-        f1 = f1_score(y_true, y_pred, average='macro')
-        acc = accuracy_score(y_true, y_pred)
-        macro_f1_scores.append(f1)
-        acc_scores.append(acc)
-        subrun_duration = time.time() - sub_run_start
-        print(f"✅ Completed set={set_num}, seed={seed} | F1={f1:.4f} | "
-            f"Acc={acc:.4f} | duration={subrun_duration/60:.1f} min")
-
+        # After epochs for this sub-run:
         wandb.log({
+            "subrun": subrun_idx,
             "set_num": set_num,
             "seed": seed,
-            "sub_macro-F1": f1,
-            "sub_acc": acc,
-            "subrun_time_min": subrun_duration / 60
+            "best_dev_f1": best_dev_f1,
+            "best_epoch": best_epoch,
         })
+        dev_f1_scores.append(best_dev_f1)
+        subrun_idx += 1
+
+        # === Test evaluation ===
+        model.load_state_dict(torch.load(args.ckpt_path))
+        test_loss, test_acc_pct, test_f1 = evaluate(test_dataset)
+
+        # Collect raw predictions (and confidence) for artifacting
+        y_true, y_pred, y_conf, guids, texts = predict(test_dataset, return_probs=True)
+
+        preds_path = fr"{paths['vmatch_out']}/preds_set{set_num}_seed{seed}.jsonl"
+        with open(preds_path, "w") as f:
+            for yt, yp, cf, gid, txt in zip(y_true, y_pred, y_conf, guids, texts):
+                rec = {
+                    "guid": gid,
+                    "text": txt,
+                    "label": int(yt),
+                    "pred": int(yp),
+                    "conf": float(cf)
+                }
+                f.write(json.dumps(rec) + "\n")
+
+        pred_art = wandb.Artifact(
+            f"preds-{args.task}-{event}-lb{lbcl}-set{set_num}-seed{seed}",
+            type="predictions",
+            metadata={"set_num": set_num, "seed": seed}
+        )
+        pred_art.add_file(preds_path, name="preds.jsonl")
+        wandb.log_artifact(pred_art)
+        if not args.keep_local_ckpt:
+            try: os.remove(preds_path)
+            except: pass
+
+
+        # keep your aggregates consistent with earlier code
+        macro_f1_scores.append(test_f1)
+        acc_scores.append(test_acc_pct / 100.0)  # your dev acc is %, your old test acc was 0..1
+
+        print(f"✅ Completed set={set_num}, seed={seed} | F1={test_f1:.4f} | "
+            f"Acc={test_acc_pct/100.0:.4f}")
+
+        wandb.log({
+            "subrun": subrun_idx - 1,  # same index as this sub-run
+            "set_num": set_num,
+            "seed": seed,
+            "sub_macro-F1": test_f1,
+            "sub_acc": test_acc_pct / 100.0,
+        })
+
+        preds_path = fr"{paths['vmatch_out']}/preds_set{set_num}_seed{seed}.jsonl"
+        with open(preds_path, "w") as f:
+            for y, p in zip(y_true, y_pred):        # if you keep them during evaluate(); or re-run quick pass to dump
+                f.write(json.dumps({"label": int(y), "pred": int(p)}) + "\n")
+
+        pred_art = wandb.Artifact(
+            f"preds-{args.task}-{event}-lb{lbcl}-set{set_num}-seed{seed}",
+            type="predictions",
+            metadata={"set_num": set_num, "seed": seed}
+        )
+        pred_art.add_file(preds_path, name="preds.jsonl")
+        wandb.log_artifact(pred_art)
+        if not args.keep_local_ckpt:
+            try: os.remove(preds_path)
+            except: pass
+
 
 # === After all runs, average results ===
 mean_f1 = np.mean(macro_f1_scores)
-std_f1 = np.std(macro_f1_scores)
+std_f1  = np.std(macro_f1_scores)
 mean_acc = np.mean(acc_scores)
+mean_dev_f1 = np.mean(dev_f1_scores)
+std_dev_f1  = np.std(dev_f1_scores)
+
+# TODO temp, to save time
+old_sweep_metric_name = "macro-F1"
+wandb.log({ old_sweep_metric_name: float(mean_dev_f1) })
+wandb.run.summary[old_sweep_metric_name] = float(mean_dev_f1)
 
 wandb.log({
     "macro-F1": mean_f1,
     "macro-F1_std": std_f1,
-    "final_eval_acc": mean_acc
+    "final_eval_acc": mean_acc,
+    "dev_macro-F1": mean_dev_f1,
+    "dev_macro-F1_std": std_dev_f1
 })
+
 wandb.finish()
 
 print(f"\n=== Averaged Results ===")

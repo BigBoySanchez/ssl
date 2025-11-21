@@ -1,3 +1,15 @@
+# 11/20
+## NOTES
+- hpft (val set; save model) -> find best, run on test
+- (TEST IS HIDDEN)
+- get bertweet numbers from here -> https://drive.google.com/file/d/1czxxqHwRNT_Sn0ZKXRpOUFknz4xNzXrE/view?-usp=drive_link
+- go over less hyperparams
+- use fine-tuned model
+- DIRECTIVE: get at least 1 legitimate number (according to prof's rules), get bertweet numbers from pdf 
+1. pdf numbers
+2. run to get legit number
+3. do research on common ways to do hpft
+
 # 11/13
 ## NOTES
 - JUST GET LBCL 50 RESULTS FOR _ALL_ EVENTS USING LAST WEEK'S CODE
