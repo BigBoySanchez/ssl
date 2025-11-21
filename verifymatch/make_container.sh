@@ -73,13 +73,14 @@ launch_agent() {
       -e EVENT_NAME="${event}" \
       -e LBCL_SIZE="${lbcl}" \
       -v ${DATA_MOUNT} \
+      -v /data/${USER}:/workspace/ssl/artifacts \
       --name "${cname}" \
       "${IMAGE}" \
       bash -c '
+        mkdir -p /workspace/ssl/artifacts && \
         apt-get update -y && apt-get install -y --no-install-recommends git && \
         cd /workspace/ssl && \
         git fetch origin && git reset --hard origin/main && \
-        mkdir -p artifacts && \
         cd verifymatch && \
         echo "[Agent '${gpu_id}'] Running sweep '${sweep_id}' ('${event}' '${lbcl}'lbcl)" && \
         wandb agent --count 10 '${ENTITY}'/'${PROJECT}'/'${sweep_id}' && \

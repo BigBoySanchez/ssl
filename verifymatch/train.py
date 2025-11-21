@@ -1474,19 +1474,20 @@ for set_num in set_nums:
                 best_epoch = epoch
                 torch.save(model.state_dict(), args.ckpt_path)
 
-            if args.artifact_mode in ('periodic','all'):
-                save_this_epoch = (args.artifact_mode == 'all') or (epoch % args.artifact_every == 0)
-                if save_this_epoch:
-                    tmp_ckpt = fr"{paths['vmatch_out']}/epoch{epoch}_set{set_num}_seed{seed}.pt"
-                    torch.save(model.state_dict(), tmp_ckpt)
-                    art_name = f"{args.task}-{event}-lb{lbcl}-set{set_num}-seed{seed}-epoch{epoch}"
-                    art = wandb.Artifact(art_name, type="model-epoch",
-                                        metadata={"epoch": epoch, "set_num": set_num, "seed": seed})
-                    art.add_file(tmp_ckpt, name="model.pt")
-                    wandb.log_artifact(art, aliases=[f"epoch-{epoch}"])
-                    if not args.keep_local_ckpt:
-                        try: os.remove(tmp_ckpt)
-                        except: pass
+            # Uncomment for full artifact control
+            # if args.artifact_mode in ('periodic','all'):
+            #     save_this_epoch = (args.artifact_mode == 'all') or (epoch % args.artifact_every == 0)
+            #     if save_this_epoch:
+            #         tmp_ckpt = fr"{paths['vmatch_out']}/epoch{epoch}_set{set_num}_seed{seed}.pt"
+            #         torch.save(model.state_dict(), tmp_ckpt)
+            #         art_name = f"{args.task}-{event}-lb{lbcl}-set{set_num}-seed{seed}-epoch{epoch}"
+            #         art = wandb.Artifact(art_name, type="model-epoch",
+            #                             metadata={"epoch": epoch, "set_num": set_num, "seed": seed})
+            #         art.add_file(tmp_ckpt, name="model.pt")
+            #         wandb.log_artifact(art, aliases=[f"epoch-{epoch}"])
+            #         if not args.keep_local_ckpt:
+            #             try: os.remove(tmp_ckpt)
+            #             except: pass
 
 
             # --- log + print ---
