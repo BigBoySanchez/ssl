@@ -1473,26 +1473,6 @@ for set_num in set_nums:
                 best_dev_f1 = eval_f1
                 best_epoch = epoch
                 torch.save(model.state_dict(), args.ckpt_path)
-                
-                if args.artifact_mode in ('best','all'):
-                    art_name = f"{args.task}-{event}-lb{lbcl}-set{set_num}-seed{seed}"
-                    artifact = wandb.Artifact(art_name, type="model",
-                                            metadata={
-                                                "task": args.task,
-                                                "event": event,
-                                                "lbcl": lbcl,
-                                                "set_num": set_num,
-                                                "seed": seed,
-                                                "epoch": epoch,
-                                                "dev_macro_f1": float(best_dev_f1),
-                                                "model_name": args.model,
-                                                "max_seq_length": args.max_seq_length,
-                                                "learning_rate": args.learning_rate,
-                                                "batch_size": args.batch_size,
-                                                "weight_decay": args.weight_decay
-                                            })
-                    artifact.add_file(args.ckpt_path, name="model.pt")
-                    wandb.log_artifact(artifact, aliases=["best", f"epoch-{epoch}"])
 
             if args.artifact_mode in ('periodic','all'):
                 save_this_epoch = (args.artifact_mode == 'all') or (epoch % args.artifact_every == 0)
@@ -1603,6 +1583,17 @@ for set_num in set_nums:
 
 
 # === After all runs, average results ===
+overall_best_idx = int(np.argmax(dev_f1_scores))
+overall_best_set  = set_nums[overall_best_idx // len(seeds)]
+overall_best_seed = seeds[overall_best_idx % len(seeds)]
+best_ckpt = f"{paths['vmatch_out']}/model_set{overall_best_set}_seed{overall_best_seed}.pt"
+
+art_name = f"{args.task}-{event}-lb{lbcl}"
+artifact = wandb.Artifact(art_name, type="model",
+    metadata={"best_set": overall_best_set, "best_seed": overall_best_seed})
+artifact.add_file(best_ckpt, name="model.pt")
+wandb.log_artifact(artifact, aliases=["best"])
+
 mean_f1 = np.mean(macro_f1_scores)
 std_f1  = np.std(macro_f1_scores)
 mean_acc = np.mean(acc_scores)
