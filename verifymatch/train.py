@@ -1589,11 +1589,15 @@ overall_best_set  = set_nums[overall_best_idx // len(seeds)]
 overall_best_seed = seeds[overall_best_idx % len(seeds)]
 best_ckpt = f"{paths['vmatch_out']}/model_set{overall_best_set}_seed{overall_best_seed}.pt"
 
-art_name = f"{args.task}-{event}-lb{lbcl}"
-artifact = wandb.Artifact(art_name, type="model",
-    metadata={"best_set": overall_best_set, "best_seed": overall_best_seed})
-artifact.add_file(best_ckpt, name="model.pt")
-wandb.log_artifact(artifact, aliases=["best"])
+# TODO pt not saving consistently
+if os.path.exists(best_ckpt):
+    art_name = f"{args.task}-{event}-lb{lbcl}"
+    artifact = wandb.Artifact(art_name, type="model",
+        metadata={"best_set": overall_best_set, "best_seed": overall_best_seed})
+    artifact.add_file(best_ckpt, name="model.pt")
+    wandb.log_artifact(artifact, aliases=["best"])
+else:
+    print(f"[WARN] Best checkpoint not found at {best_ckpt}. Skipping artifact upload.")
 
 mean_f1 = np.mean(macro_f1_scores)
 std_f1  = np.std(macro_f1_scores)

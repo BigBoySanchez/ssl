@@ -199,7 +199,7 @@ def main():
     tok = AutoTokenizer.from_pretrained(
         args.model_name, 
         use_fast=True,
-        normalization=True, # TODO, may help BERTweet
+        normalization=True,
     )
     _tmp_model = AutoModelForSequenceClassification.from_pretrained(
         args.model_name, num_labels=len(label2id), id2label=id2label, label2id=label2id

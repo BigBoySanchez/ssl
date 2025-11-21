@@ -9,6 +9,8 @@
 1. pdf numbers
 2. run to get legit number
 3. do research on common ways to do hpft
+- TODO: make a more sophisticated artifact cleaning system
+- TODO: do not use the wandb cloud to store ckpt files
 
 # 11/13
 ## NOTES
