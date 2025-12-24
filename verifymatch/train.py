@@ -1571,13 +1571,6 @@ for set_num in set_nums:
             for y, p in zip(y_true, y_pred):        # if you keep them during evaluate(); or re-run quick pass to dump
                 f.write(json.dumps({"label": int(y), "pred": int(p)}) + "\n")
 
-        pred_art = wandb.Artifact(
-            f"preds-{args.task}-{event}-lb{lbcl}-set{set_num}-seed{seed}",
-            type="predictions",
-            metadata={"set_num": set_num, "seed": seed}
-        )
-        pred_art.add_file(preds_path, name="preds.jsonl")
-        wandb.log_artifact(pred_art)
         if not args.keep_local_ckpt:
             try: os.remove(preds_path)
             except: pass
