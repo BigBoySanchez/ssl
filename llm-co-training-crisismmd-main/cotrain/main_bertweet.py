@@ -43,6 +43,7 @@ from src.loss import SmoothCrossEntropyLoss
 # from co_training_parallel import CoTrainer
 # from fine_tune_models import DualModelTrainer
 from trainer_classes import WeightGenerator, CoTrainer, DualModelTrainer
+import data_utils
 
 import os
 import numpy as np
@@ -56,12 +57,14 @@ EPOCH_PATIENCE = 5
 # Dataset configurations
 LABELED_SAMPLES = {
     'informative': [2, 10, 20, 40, 100, 200, 300, 400, 500, 1000],
-    'humanitarian': [2, 10, 20, 40, 100, 200, 300, 400, 500]
+    'humanitarian': [2, 10, 20, 40, 100, 200, 300, 400, 500],
+    'humaid': [2, 10, 20, 40, 100, 200, 300, 400, 500]
 }
 
 NUM_CLASSES = {
     'informative': 2,
-    'humanitarian': 5
+    'humanitarian': 5,
+    'humaid': 5
 }
 
 # Model mapping for easier reference
@@ -88,102 +91,14 @@ PLM_ID_MAPPING = {
 few_shot_samples_per_class = {
     'informative': 2,
     'humanitarian': 5,
+    'humaid': 5,
 }
 
 plm_ids = list(PLM_ID_MAPPING.keys())
 llm_ids = list(HF_MODEL_MAPPING.keys())
 datasets = list(LABELED_SAMPLES.keys())
 
-def get_exponential_decay_ratio(num_classes, imbalance_ratio=10):
-    cls_indices = np.arange(num_classes)
-    ratios = imbalance_ratio ** (-cls_indices / (num_classes - 1))
-    return ratios / ratios.sum()
-
-
-def load_imb_dataset_helper(dataset, N, pseudo_label_shot, processed_dir, data_dir, use_correct_labels_only=None, mnli_split=None):
-    """Helper function to load datasets with long-tailed label distribution."""
-
-    def json2pd(filepath):
-        return pd.read_json(filepath, orient='index')
-
-    def load_data(file_name):
-        return pd.read_csv(os.path.join(data_dir, dataset, file_name), sep='\t')
-
-    # if dataset == 'sci_nli':
-    #     trainingSet_1 = load_data('train_1.tsv')
-    #     trainingSet_2 = load_data('train_2.tsv')
-    #     testingSet = load_data('test.tsv')
-    #     validationSet = load_data('dev.tsv')
-    #     llm_labeled_traininSet = json2pd(os.path.join(processed_dir, f'llm_labeled_trainingSet_{pseudo_label_shot}_shot.json'))
-    #     auto_labeled_data = llm_labeled_traininSet.copy()
-    #     auto_labeled_data['label'] = auto_labeled_data['gen_label']
-    #     auto_labeled_data['id'] = auto_labeled_data.index
-
-    # else:
-    # Load test and validation sets
-    testingSet = json2pd(os.path.join(data_dir, dataset, 'test.json'))
-    validationSet = json2pd(os.path.join(data_dir, dataset, 'dev.json'))
-
-    # Load full LLM-labeled training set
-    llm_labeled_traininSet = json2pd(os.path.join(processed_dir, f'llm_labeled_trainingSet_{pseudo_label_shot}_shot.json'))
-    llm_labeled_traininSet = llm_labeled_traininSet.sample(frac=1.0, random_state=42).reset_index(drop=True)
-
-    # Get number of classes from y_true
-    all_labels = llm_labeled_traininSet['ori_label'].unique()
-    num_classes = len(all_labels)
-
-    # Create long-tailed label distribution
-    # long_tail_ratio = np.linspace(1.0, 0.1, num_classes)
-    # long_tail_ratio = np.exp(np.linspace(np.log(1.0), np.log(0.01), num_classes))
-    # ranks = np.arange(1, num_classes+1)
-    # long_tail_ratio = 1/ranks  # Basic Zipf distribution
-    
-    # np.random.shuffle(long_tail_ratio)  # Shuffle to avoid fixed head/tail class order
-    # long_tail_ratio = long_tail_ratio / long_tail_ratio.sum()
-    long_tail_ratio = get_exponential_decay_ratio(num_classes, imbalance_ratio=10)
-    print(f"Long tail ratio: {long_tail_ratio}")
-    
-    samples_per_class = (N * 2 * long_tail_ratio).astype(int)
-    samples_per_class = np.maximum(samples_per_class, 1)
-
-    # Sample trainingSet_1 and trainingSet_2 from each class
-    training_1_list, training_2_list = [], []
-    used_ids = set()
-
-    for i, label in enumerate(all_labels):
-        class_df = llm_labeled_traininSet[llm_labeled_traininSet['ori_label'] == label]
-        n_samples = samples_per_class[i]
-        selected = class_df.head(n_samples)
-        split_point = n_samples // 2
-
-        training_1_list.append(selected.iloc[:split_point])
-        training_2_list.append(selected.iloc[split_point:])
-        used_ids.update(selected.index.tolist())
-
-    trainingSet_1 = pd.concat(training_1_list).copy()
-    trainingSet_2 = pd.concat(training_2_list).copy()
-
-    # Now subsample auto_labeled_data from remaining using same long_tail_ratio
-    remaining = llm_labeled_traininSet[~llm_labeled_traininSet.index.isin(used_ids)].copy()
-    remaining = remaining[remaining['gen_label'] >= 0]  # ensure valid gen labels
-
-    auto_labeled_list = []
-    for i, label in enumerate(all_labels):
-        class_df = remaining[remaining['ori_label'] == label]
-        class_n = int(len(remaining) * long_tail_ratio[i])
-        selected = class_df.head(class_n)
-        auto_labeled_list.append(selected)
-
-    auto_labeled_data = pd.concat(auto_labeled_list).copy()
-    auto_labeled_data['label'] = auto_labeled_data['gen_label']
-    trainingSet_1['label'] = trainingSet_1['ori_label']
-    trainingSet_2['label'] = trainingSet_2['ori_label']
-
-    # Optionally filter to only correct auto-labels
-    if use_correct_labels_only:
-        auto_labeled_data = auto_labeled_data[auto_labeled_data['label'] == auto_labeled_data['ori_label']]
-
-    return trainingSet_1, trainingSet_2, testingSet, validationSet, auto_labeled_data
+# functions moved to data_utils.py
 
 
 def create_dataloader(dataframe, tokenizer, dataset_name, batch_size, max_len):
@@ -333,6 +248,8 @@ def parse_arguments():
     parser.add_argument("--use_correct_labels_only", type=str2bool, default=False, help="Use correct labels only")
     parser.add_argument("--cuda_devices", type=str, default="0,1,2,3", help="Comma-separated list of CUDA device IDs to use (e.g., 0,1)")
     parser.add_argument("--imb_training", action="store_true", default=False, help="Use imbalanced training")
+    parser.add_argument("--data_dir", type=str, default="./data", help="Path to data directory")
+    parser.add_argument("--pseudo_label_dir", type=str, default="./data/pseudo_labels", help="Path to pseudo-label directory")
     args = parser.parse_args()
     
     #args.pseudo_label_shot = few_shot_samples_per_class[args.dataset] if args.few_shot else 0
@@ -394,66 +311,7 @@ def setup_comet_experiment(args):
     experiment.set_name(f"{args.dataset}_{args.saved_model_name_suffix}")
     return experiment
 
-def load_dataset_helper(use_correct_labels_only=None, shots=None, task_name=None):
-    """Helper function to load datasets based on dataset type."""
-    
-    def json2pd(filepath):
-        return pd.read_json(filepath, orient='index') # was index previously in the original code
-    
-    def load_data(file_name):
-        return pd.read_csv(file_name, sep='\t')
-    
-    if task_name == 'informative':
-        label_map = {
-            'not_informative': 0, 
-            'informative': 1
-        }
-    elif task_name == 'humanitarian':
-        label_map = {
-            "affected_individuals": 0, 
-            "rescue_volunteering_or_donation_effort": 1,
-            "infrastructure_and_utility_damage": 2,
-            "other_relevant_information": 3,
-            "not_humanitarian": 4,
-        }
-    
-    #valid_tsv = "/home/b/bharanibala/mllmd/crisismmd_datasplit_agreed_label/crisismmd_datasplit_agreed_label/task_informative_text_img_agreed_lab_dev.tsv"
-
-    valid_json = f"/home/b/bharanibala/mllmd/CrisisMMD_Modified/{task_name}/dev/text_only.json"
-    validationSet = json2pd(valid_json)
-
-    #print(f"val set {validationSet['label'].unique()}")
-
-    validationSet['label'] = validationSet['label'].map(label_map)
-
-    #test_tsv = "/home/b/bharanibala/mllmd/crisismmd_datasplit_agreed_label/crisismmd_datasplit_agreed_label/task_informative_text_img_agreed_lab_test.tsv"
-    
-    test_json = f"/home/b/bharanibala/mllmd/CrisisMMD_Modified/{task_name}/test/text_only.json"
-    testingSet = json2pd(test_json) #load_data(test_tsv)
-
-    #print(f"test set {testingSet['label'].unique()}")
-
-    testingSet['label'] = testingSet['label'].map(label_map)
-
-    if task_name == 'humanitarian':
-        small_task_code = 'Huma'
-    if task_name == 'informative':
-        small_task_code = 'Info'
-
-    trainingSet_1 = json2pd(f"/home/b/bharanibala/mllmd/llm_pseudo_labels/{task_name}/few_shot_splits/Llama-3.2-11B-Vision-Instruct-{small_task_code}-Zeroshot-Text-Only-ex-crctd/info_{shots}-shot_train_set1.json")
-    trainingSet_2 = json2pd(f"/home/b/bharanibala/mllmd/llm_pseudo_labels/{task_name}/few_shot_splits/Llama-3.2-11B-Vision-Instruct-{small_task_code}-Zeroshot-Text-Only-ex-crctd/info_{shots}-shot_train_set2.json")
-    auto_labeled_data = json2pd(f"/home/b/bharanibala/mllmd/llm_pseudo_labels/{task_name}/few_shot_splits/Llama-3.2-11B-Vision-Instruct-{small_task_code}-Zeroshot-Text-Only-ex-crctd/unlabeled_train_{shots}.json")
-    
-    # Set labels appropriately
-    trainingSet_1['label'] = trainingSet_1['ori_label']
-    trainingSet_2['label'] = trainingSet_2['ori_label']
-    auto_labeled_data['label'] = auto_labeled_data['gen_label']
-    
-    #print(f"trainingSet_1 = {len(trainingSet_1)} \n trainingSet_2 = 2 {len(trainingSet_2)} \n testingSet = {len(testingSet)} validationSet = {len(validationSet)} auto_labeled_data = {len(auto_labeled_data)}")
-
-    if use_correct_labels_only:
-        auto_labeled_data = auto_labeled_data[auto_labeled_data['gen_label'] == auto_labeled_data['ori_label']]
-    return trainingSet_1, trainingSet_2, testingSet, validationSet, auto_labeled_data
+# load_dataset_helper moved to data_utils.py
 
 def main():
     st = time.time()
@@ -520,11 +378,17 @@ def main():
     
     # Load dataset
     if args.imb_training:
-        trainingSet_1, trainingSet_2, testingSet, validationSet, auto_labeled_data = load_imb_dataset_helper(
-            args.dataset, N, args.pseudo_label_shot, processed_dir, data_dir,args.use_correct_labels_only
+        trainingSet_1, trainingSet_2, testingSet, validationSet, auto_labeled_data = data_utils.load_imb_dataset_helper(
+            args.dataset, N, args.pseudo_label_shot, processed_dir, args.data_dir, args.use_correct_labels_only
         )
     else:
-        trainingSet_1, trainingSet_2, testingSet, validationSet, auto_labeled_data = load_dataset_helper(args.use_correct_labels_only, N, args.dataset)    
+        trainingSet_1, trainingSet_2, testingSet, validationSet, auto_labeled_data = data_utils.load_dataset_helper(
+            use_correct_labels_only=args.use_correct_labels_only, 
+            shots=args.pseudo_label_shot, 
+            task_name=args.dataset,
+            data_dir=args.data_dir,
+            pseudo_label_dir=args.pseudo_label_dir
+        )    
     
     # If not using multiset, make both training sets the same
     if args.single_set:

@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import Dataset
 import re
+import data_utils
 
 
 class BaseDatasetProcessor:
@@ -33,9 +34,7 @@ class GenericLabelProcessor:
 
 class TextOnlyProcessor(BaseDatasetProcessor, GenericLabelProcessor):
     def __init__(self, label_map=None):
-        #self.label_map = {} if label_map is None else label_map
-        # self.label_map = { "informative": 1, "not_informative": 0 } # if label_map is None else label_map
-        self.label_map = {
+        self.label_map = label_map if label_map is not None else {
             "affected_individuals": 0, 
             "rescue_volunteering_or_donation_effort": 1,
             "infrastructure_and_utility_damage": 2,
@@ -293,11 +292,13 @@ class ImageDataset(Dataset):
                 "other_relevant_information": 3,
                 "not_humanitarian": 4,
             },
+            'humaid': data_utils.get_humaid_label_map(),
         }
         processors = {
             'aclImdb': TextOnlyProcessor(label_maps['aclImdb']),
             'informative': TextOnlyProcessor(label_maps['informative']),
             'humanitarian': TextOnlyProcessor(label_maps['humanitarian']),
+            'humaid': TextOnlyProcessor(label_maps['humaid']),
         }
         if dataset not in processors:
             raise ValueError(f"Unsupported dataset: {dataset}")
