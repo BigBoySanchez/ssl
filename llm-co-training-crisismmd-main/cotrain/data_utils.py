@@ -169,7 +169,7 @@ def load_humaid_dataset(
     # We will use all_events.tsv as the source for "auto_labeled_data" and "llm_labeled_traininSet"
     
     pseudo_path = os.path.join(data_dir, "humaid", pseudo_label_dir, "sep", f"{lbcl}lb", set_num, "unlabeled.tsv") 
-    gold_path = os.path.join(data_dir, "humaid", pseudo_label_dir, "sep", f"{lbcl}lb", set_num, "train.tsv")
+    gold_path = os.path.join(data_dir, "humaid", pseudo_label_dir, "sep", f"{lbcl}lb", set_num, "labeled.tsv")
 
     plabel_df = load_tsv(pseudo_path)
     gold_df = load_tsv(gold_path)

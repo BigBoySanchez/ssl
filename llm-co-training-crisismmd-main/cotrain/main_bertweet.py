@@ -55,7 +55,7 @@ MAX_LEN = 300 # usually 300 but CLIP model requires 77 - ValueError: Sequence le
 EPOCH_PATIENCE = 5
 
 # Dataset configurations
-# TODO: humaid needs to be lb/cl
+
 LABELED_SAMPLES = {
     'informative': [2, 10, 20, 40, 100, 200, 300, 400, 500, 1000],
     'humanitarian': [2, 10, 20, 40, 100, 200, 300, 400, 500],
@@ -252,6 +252,9 @@ def parse_arguments():
     parser.add_argument("--imb_training", action="store_true", default=False, help="Use imbalanced training")
     parser.add_argument("--data_dir", type=str, default="./data", help="Path to data directory")
     parser.add_argument("--pseudo_label_dir", type=str, default="./data/pseudo_labels", help="Path to pseudo-label directory")
+    parser.add_argument("--event", type=str, default=None, help="Event name for humaid dataset")
+    parser.add_argument("--lbcl", type=str, default=None, help="Labeled count per class string/int for humaid dataset")
+    parser.add_argument("--set_num", type=str, default=None, help="Set number string for humaid dataset")
     args = parser.parse_args()
     
     #args.pseudo_label_shot = few_shot_samples_per_class[args.dataset] if args.few_shot else 0
@@ -391,7 +394,10 @@ def main():
             shots=args.pseudo_label_shot, 
             task_name=args.dataset,
             data_dir=args.data_dir,
-            pseudo_label_dir=args.pseudo_label_dir
+            pseudo_label_dir=args.pseudo_label_dir,
+            event=args.event,
+            lbcl=args.lbcl,
+            set_num=args.set_num
         )    
     
     # If not using multiset, make both training sets the same

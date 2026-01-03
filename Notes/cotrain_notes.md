@@ -25,4 +25,4 @@
   - How do u fine tune an existing model?
 
 ## TEMP
-run this: `python main_bertweet.py --dataset humaid --labeled_sample_idx 8 --hf_model_id_short llama-3-8b --plm_id roberta-base --metric_combination cv --setup_local_logging --seed 1234`
+run this: `python main_bertweet.py --dataset humaid --hf_model_id_short N/A --plm_id roberta-base --metric_combination cv --setup_local_logging --seed 1234 --pseudo_label_dir ../data/humaid/anh_4o --event california_wildfires_2018 --lbcl 50 --set_num 1`
