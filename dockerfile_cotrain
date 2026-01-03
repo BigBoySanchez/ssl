@@ -1,15 +1,4 @@
-# === Stage 1: Clone the SSL repo ===
-FROM alpine/git:2.45.2 AS cloner
-
-ARG SSL_COMMIT=main
-WORKDIR /src
-
-# Clone the repo and checkout the commit (or branch)
-RUN git clone https://github.com/BigBoySanchez/ssl.git . && \
-    git checkout $SSL_COMMIT
-
-
-# === Stage 2: Final runtime image ===
+# === Final runtime image ===
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel
 
 WORKDIR /workspace
@@ -17,17 +6,18 @@ WORKDIR /workspace
 # Install vim for quick fixes
 RUN apt update && apt-get install -y vim git
 
-# Copy code from the previous stage
-COPY --from=cloner /src /workspace/ssl
+# === Layer Caching Optimization ===
+# 1. Copy only requirements first
+COPY requirements.txt /workspace/ssl/requirements.txt
 
-# Create symlinks for shared data/artifacts
-RUN mkdir -p /workspace/ssl/artifacts /workspace/ssl/data
-
-# Install dependencies
+# 2. Install dependencies (this layer is now cached unless requirements.txt changes)
 RUN pip install --no-cache-dir -r /workspace/ssl/requirements.txt
 
-# === W&B setup (optional) ===
-ENV WANDB_API_KEY=
+# 3. Copy the rest of the source code
+COPY . /workspace/ssl
+
+# Create symlinks and directories
+RUN mkdir -p /workspace/ssl/artifacts /workspace/ssl/data
 
 CMD ["bash"]
 
