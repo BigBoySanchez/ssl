@@ -288,8 +288,7 @@ def setup_local_logging(args):
         return None
     
     log_dir = f"{ROOT}/output/{args.dataset}/{args.exp_name}"
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+    os.makedirs(log_dir, exist_ok=True)
     output_log_path = os.path.join(log_dir, f"log_{args.saved_model_name_suffix}.txt")
     
     lg.basicConfig(
@@ -342,7 +341,7 @@ def main():
     # args.exp_name = "lg-cotr"
     
     # Set up paths
-    saved_model_name_suffix = f"_{args.exp_name}_{args.hf_model_id_short}_{args.pseudo_label_shot}_shot_{args.plm_id}_{N}_seed_{args.seed}"
+    saved_model_name_suffix = f"_{args.exp_name}_{args.hf_model_id_short}_{args.pseudo_label_shot}_shot_{args.plm_id}_{N}_seed_{args.seed}".replace('/', '-')
             
     args.saved_model_name_suffix = saved_model_name_suffix
     
