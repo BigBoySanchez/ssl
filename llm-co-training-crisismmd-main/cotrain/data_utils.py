@@ -88,10 +88,10 @@ def get_humaid_label_map():
 def load_humaid_dataset(
     data_dir,
     pseudo_label_dir,
-    use_correct_labels_only=False,
     event,
     lbcl,
     set_num,
+    use_correct_labels_only=False,
 ):
     """
     Loads HumAID data from TSV files.
@@ -238,7 +238,7 @@ def load_dataset_helper(
         }
     elif task_name == 'humaid':
         # Delegate to specific HumAID loader which handles TSV
-        return load_humaid_dataset(data_dir, pseudo_label_dir, use_correct_labels_only, event, lbcl, set_num)
+        return load_humaid_dataset(data_dir, pseudo_label_dir, event, lbcl, set_num, use_correct_labels_only)
 
     
     # Construct paths dynamically
