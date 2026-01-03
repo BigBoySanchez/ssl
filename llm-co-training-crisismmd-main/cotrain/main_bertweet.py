@@ -235,7 +235,7 @@ def parse_arguments():
     """Parse and validate command line arguments."""
     parser = argparse.ArgumentParser(description="Co-Training Script")
     parser.add_argument("--dataset", type=str,  choices=datasets, help="Dataset name")
-    parser.add_argument("--labeled_sample_idx", type=int, choices=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], help="Index for labeled samples")
+    parser.add_argument("--labeled_sample_idx", type=int, default=0, choices=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], help="Index for labeled samples")
     parser.add_argument("--hf_model_id_short", type=str, choices=llm_ids, help="Short ID for the Hugging Face model")
     parser.add_argument("--seed", type=int, default=1234, choices=[1234, 4567, 8998], help="Random seed for reproducibility")
     parser.add_argument("--plm_id", type=str, default="roberta-base", choices=plm_ids, help="PLM (bert-base, roberta-base, deberta-base, etc.)")
