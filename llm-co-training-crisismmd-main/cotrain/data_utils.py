@@ -179,7 +179,7 @@ def load_humaid_dataset(
     
     # Process Auto-Labeled Data (Pool)
     auto_labeled_data = plabel_df.copy()
-    auto_labeled_data['label'] = auto_labeled_data['gen_label']
+    auto_labeled_data['label'] = auto_labeled_data['ori_label'] # Due to unlabeled.tsv using "class_label"
     if 'event' in auto_labeled_data.columns:
         auto_labeled_data = auto_labeled_data[auto_labeled_data['event'] == event]
     
@@ -196,8 +196,7 @@ def load_humaid_dataset(
     trainingSet_1 = gold_copy.iloc[:half_point].copy()
     trainingSet_2 = gold_copy.iloc[half_point:].copy()
     
-    if use_correct_labels_only:
-         auto_labeled_data = auto_labeled_data[auto_labeled_data['gen_label'] == auto_labeled_data['ori_label']]
+    # TODO: Add use_correct_labels_only logic
 
     return trainingSet_1, trainingSet_2, testingSet, validationSet, auto_labeled_data
 
