@@ -12,7 +12,7 @@ from sklearn.metrics import f1_score
 from sklearn.preprocessing import MinMaxScaler
 
 #local imports
-from src.utils import *
+from utils import *
 
 
 class WeightGenerator:
