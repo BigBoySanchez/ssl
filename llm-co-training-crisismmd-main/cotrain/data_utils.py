@@ -156,6 +156,9 @@ def load_humaid_dataset(
     validationSet = pd.read_csv(valid_path, sep='\t') if os.path.exists(valid_path) else pd.DataFrame()
     testingSet = pd.read_csv(test_path, sep='\t') if os.path.exists(test_path) else pd.DataFrame()
     
+    validationSet['label'] = validationSet['class_label'].map(label_map)
+    testingSet['label'] = testingSet['class_label'].map(label_map)
+    
     # Fix labels for dev/test
     if 'label' in validationSet.columns and validationSet['label'].dtype == object:
          validationSet['label'] = validationSet['label'].map(label_map)
