@@ -23,3 +23,6 @@
 ### DualModelTrainer
 - Fine tunes the models
   - How do u fine tune an existing model?
+
+## TEMP
+run this: `python main_bertweet.py --dataset humaid --labeled_sample_idx 8 --hf_model_id_short llama-3-8b --plm_id roberta-base --metric_combination cv --setup_local_logging --seed 1234`

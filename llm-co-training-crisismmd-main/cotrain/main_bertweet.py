@@ -1,4 +1,4 @@
-from comet_ml import Experiment
+# from comet_ml import Experiment
 import os
 import sys
 import gc
@@ -75,7 +75,8 @@ HF_MODEL_MAPPING = {
     "mistral-7b": "Mistral-7B-Instruct",
     "llama-3-8b": "Llama-3.1-8B",
     "llama-3-70b": "Llama-3.3-70B",
-    "roberta": "roberta-base"
+    "roberta": "roberta-base",
+    "N/A": "N/A"
 }
 
 PLM_ID_MAPPING = {
@@ -304,6 +305,8 @@ def setup_comet_experiment(args):
     if not args.comet_ml:
         return None
     
+    
+    from comet_ml import Experiment
     experiment = Experiment(
         api_key="<Comet_api_key>",
         project_name="llmcot",
