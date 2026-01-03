@@ -98,37 +98,32 @@ class TextDataset(Dataset):
         if 'ori_label' in row:
             item['ori_labels'] = torch.tensor(row['label'], dtype=torch.long)
 
-        if self.dataset in ['informative', 'humanitarian']:
-#            input_ids, token_type_ids, attention_mask = self.encoder.encode_sentence(
-            input_ids, attention_mask = self.encoder.encode_sentence(
-                str(row['tweet_text'])
+        input_ids, attention_mask = self.encoder.encode_sentence(
+            str(row['tweet_text'])
+        )
+        
+        
+        if self.include_augmented:
+            # Weak augmentation (aug_0)
+            aug0_input_ids, aug0_token_type_ids, aug0_attention_mask = self.encoder.encode_sentence(
+                str(row['aug_0'])
             )
-            
-            
-            if self.include_augmented:
-                # Weak augmentation (aug_0)
-                aug0_input_ids, aug0_token_type_ids, aug0_attention_mask = self.encoder.encode_sentence(
-                    str(row['aug_0'])
-                )
-                # Strong augmentation (aug_1)
-                aug1_input_ids, aug1_token_type_ids, aug1_attention_mask = self.encoder.encode_sentence(
-                    str(row['aug_1'])
-                )
-                item.update({
-                    'aug0_input_ids': aug0_input_ids,
-                    'aug0_token_type_ids': aug0_token_type_ids,
-                    'aug0_attention_mask': aug0_attention_mask,
-                    'aug1_input_ids': aug1_input_ids,
-                    'aug1_token_type_ids': aug1_token_type_ids,
-                    'aug1_attention_mask': aug1_attention_mask,
-                })
-        else:
-            raise ValueError(f"Unsupported dataset: {self.dataset}")
+            # Strong augmentation (aug_1)
+            aug1_input_ids, aug1_token_type_ids, aug1_attention_mask = self.encoder.encode_sentence(
+                str(row['aug_1'])
+            )
+            item.update({
+                'aug0_input_ids': aug0_input_ids,
+                'aug0_token_type_ids': aug0_token_type_ids,
+                'aug0_attention_mask': aug0_attention_mask,
+                'aug1_input_ids': aug1_input_ids,
+                'aug1_token_type_ids': aug1_token_type_ids,
+                'aug1_attention_mask': aug1_attention_mask,
+            })
 
         # Add the common encoding fields
         item.update({
             'input_ids': input_ids,
-            # 'token_type_ids': token_type_ids,
             'attention_mask': attention_mask,
         })
 
@@ -148,6 +143,7 @@ class TextDataset(Dataset):
         processors = {
             'informative': TextOnlyProcessor(label_maps['informative']),
             'humanitarian': TextOnlyProcessor(label_maps['humanitarian']),
+            'humaid': TextOnlyProcessor(data_utils.get_humaid_label_map()),
         }
         if dataset not in processors:
             raise ValueError(f"Unsupported dataset: {dataset}")
