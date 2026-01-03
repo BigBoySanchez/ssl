@@ -274,8 +274,8 @@ def set_environment(args):
     
     # Set device configuration
     if torch.cuda.device_count() >= 2:
-        device_1 = torch.device("cuda:1")
-        device_2 = torch.device("cuda:2")
+        device_1 = torch.device("cuda:0")
+        device_2 = torch.device("cuda:1")
     else:
         device_1 = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         device_2 = device_1
