@@ -85,7 +85,14 @@ def get_humaid_label_map():
         'not_humanitarian': 9
     }
 
-def load_humaid_dataset(data_dir, pseudo_label_dir, shots=None, use_correct_labels_only=False):
+def load_humaid_dataset(
+    data_dir,
+    pseudo_label_dir,
+    use_correct_labels_only=False,
+    event,
+    lbcl,
+    set_num,
+):
     """
     Loads HumAID data from TSV files.
     """
@@ -143,11 +150,11 @@ def load_humaid_dataset(data_dir, pseudo_label_dir, shots=None, use_correct_labe
     # OR just return the tuple expected by main.
     
     # Let's assume loading validation/test from the standard locations:
-    valid_path = os.path.join(data_dir, "humaid", "dev", "text_only.json")
-    test_path = os.path.join(data_dir, "humaid", "test", "text_only.json")
+    valid_path = os.path.join(data_dir, "humaid", "joined", "dev.tsv")
+    test_path = os.path.join(data_dir, "humaid", "joined", "test.tsv")
     
-    validationSet = pd.read_json(valid_path, orient='index') if os.path.exists(valid_path) else pd.DataFrame()
-    testingSet = pd.read_json(test_path, orient='index') if os.path.exists(test_path) else pd.DataFrame()
+    validationSet = pd.read_csv(valid_path, sep='\t') if os.path.exists(valid_path) else pd.DataFrame()
+    testingSet = pd.read_csv(test_path, sep='\t') if os.path.exists(test_path) else pd.DataFrame()
     
     # Fix labels for dev/test
     if 'label' in validationSet.columns and validationSet['label'].dtype == object:
@@ -161,26 +168,30 @@ def load_humaid_dataset(data_dir, pseudo_label_dir, shots=None, use_correct_labe
     # "raw has each event split, joined has each split containing all events"
     # We will use all_events.tsv as the source for "auto_labeled_data" and "llm_labeled_traininSet"
     
-    pseudo_path = os.path.join(data_dir, "humaid", "anh_4o", "all_events.tsv") 
-    # Note: user pointed to 'data/humaid/anh_4o/all_events.tsv' in the prompt/context
+    pseudo_path = os.path.join(data_dir, "humaid", pseudo_label_dir, "sep", f"{lbcl}lb", set_num, "unlabeled.tsv") 
+    gold_path = os.path.join(data_dir, "humaid", pseudo_label_dir, "sep", f"{lbcl}lb", set_num, "train.tsv")
+
+    plabel_df = load_tsv(pseudo_path)
+    gold_df = load_tsv(gold_path)
     
-    all_data = load_tsv(pseudo_path)
-    
-    # Filter/Select for training
-    # For now, just return all_data as auto_labeled_data
-    auto_labeled_data = all_data.copy()
+    # Process Auto-Labeled Data (Pool)
+    auto_labeled_data = plabel_df.copy()
     auto_labeled_data['label'] = auto_labeled_data['gen_label']
+    if 'event' in auto_labeled_data.columns:
+        auto_labeled_data = auto_labeled_data[auto_labeled_data['event'] == event]
     
-    # Fake training sets if needed (split all_data?)
-    # or just return empty definitions to be filled by caller?
-    # The caller expects trainingSet_1, trainingSet_2, ...
+    # Process Gold Data (Initial Training Sets)
+    gold_copy = gold_df.copy()
+    gold_copy['label'] = gold_copy['ori_label']
+    if 'event' in gold_copy.columns:
+        gold_copy = gold_copy[gold_copy['event'] == event]
     
-    # Let's just split auto_labeled_data arbitrarily for now to satisfy the return signature
-    # In real co-training, these should be specific labeled sets (shots).
-    # If shots=0, we might strictly use the auto_labeled data.
-    
-    trainingSet_1 = auto_labeled_data.iloc[:100].copy() # Placeholder
-    trainingSet_2 = auto_labeled_data.iloc[100:200].copy() # Placeholder
+    # Shuffle the gold data
+    gold_copy = gold_copy.sample(frac=1).reset_index(drop=True)
+
+    half_point = len(gold_copy) // 2
+    trainingSet_1 = gold_copy.iloc[:half_point].copy()
+    trainingSet_2 = gold_copy.iloc[half_point:].copy()
     
     if use_correct_labels_only:
          auto_labeled_data = auto_labeled_data[auto_labeled_data['gen_label'] == auto_labeled_data['ori_label']]
@@ -188,7 +199,16 @@ def load_humaid_dataset(data_dir, pseudo_label_dir, shots=None, use_correct_labe
     return trainingSet_1, trainingSet_2, testingSet, validationSet, auto_labeled_data
 
 
-def load_dataset_helper(use_correct_labels_only=None, shots=None, task_name=None, data_dir=None, pseudo_label_dir=None):
+def load_dataset_helper(
+    use_correct_labels_only=None, 
+    shots=None, 
+    task_name=None, 
+    data_dir=None, 
+    pseudo_label_dir=None,
+    event=None,
+    lbcl=None,
+    set_num=None
+):
     """Helper function to load datasets based on dataset type."""
     
     if data_dir is None:
@@ -218,7 +238,7 @@ def load_dataset_helper(use_correct_labels_only=None, shots=None, task_name=None
         }
     elif task_name == 'humaid':
         # Delegate to specific HumAID loader which handles TSV
-        return load_humaid_dataset(data_dir, pseudo_label_dir, shots, use_correct_labels_only)
+        return load_humaid_dataset(data_dir, pseudo_label_dir, use_correct_labels_only, event, lbcl, set_num)
 
     
     # Construct paths dynamically

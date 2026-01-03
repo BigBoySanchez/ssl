@@ -34,11 +34,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Local imports
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from src.utils import delete_saved_models, log_message, str2bool
-from src.data_processor import TextDataset
-from src.models import RoBERTa, BERT, DeBERTa, RoBERTaLarge, TransformerModel, BERTweet, ClassifyCLIP
-from src.loss import SmoothCrossEntropyLoss
+# sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from utils import delete_saved_models, log_message, str2bool
+from data_processor import TextDataset
+from models import RoBERTa, BERT, DeBERTa, RoBERTaLarge, TransformerModel, BERTweet, ClassifyCLIP
+from loss import SmoothCrossEntropyLoss
 # from gen_init_weights import WeightGenerator
 # from co_training_parallel import CoTrainer
 # from fine_tune_models import DualModelTrainer
@@ -55,6 +55,7 @@ MAX_LEN = 300 # usually 300 but CLIP model requires 77 - ValueError: Sequence le
 EPOCH_PATIENCE = 5
 
 # Dataset configurations
+# TODO: humaid needs to be lb/cl
 LABELED_SAMPLES = {
     'informative': [2, 10, 20, 40, 100, 200, 300, 400, 500, 1000],
     'humanitarian': [2, 10, 20, 40, 100, 200, 300, 400, 500],
@@ -64,7 +65,7 @@ LABELED_SAMPLES = {
 NUM_CLASSES = {
     'informative': 2,
     'humanitarian': 5,
-    'humaid': 5
+    'humaid': 10
 }
 
 # Model mapping for easier reference
@@ -91,7 +92,7 @@ PLM_ID_MAPPING = {
 few_shot_samples_per_class = {
     'informative': 2,
     'humanitarian': 5,
-    'humaid': 5,
+    'humaid': 10,
 }
 
 plm_ids = list(PLM_ID_MAPPING.keys())
@@ -561,7 +562,6 @@ def main():
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
     #torch.cuda.set_device(1)
     main()
 
