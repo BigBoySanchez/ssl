@@ -269,8 +269,14 @@ def set_environment(args):
     
     # Set random seeds
     random.seed(args.seed)
-    torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)  # if you are using multi-GPU.
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.use_deterministic_algorithms(True)
+
     
     # Set device configuration
     if torch.cuda.device_count() >= 2:
@@ -398,7 +404,8 @@ def main():
             pseudo_label_dir=args.pseudo_label_dir,
             event=args.event,
             lbcl=args.lbcl,
-            set_num=args.set_num
+            set_num=args.set_num,
+            seed=args.seed
         )    
     
     # If not using multiset, make both training sets the same
