@@ -342,6 +342,8 @@ def main():
     
     # Set up paths
     saved_model_name_suffix = f"_{args.exp_name}_{args.hf_model_id_short}_{args.pseudo_label_shot}_shot_{args.plm_id}_{N}_seed_{args.seed}".replace('/', '-')
+    if args.dataset == "humaid":
+        saved_model_name_suffix = f"_{args.exp_name}_{args.hf_model_id_short}_{args.pseudo_label_shot}_shot_{args.plm_id}_{N}_seed_{args.seed}_{args.event}_{args.lbcl}".replace('/', '-')
             
     args.saved_model_name_suffix = saved_model_name_suffix
     
