@@ -92,7 +92,6 @@ def load_humaid_dataset(
     lbcl,
     set_num,
     use_correct_labels_only=False,
-    seed=None
 ):
     """
     Loads HumAID data from TSV files.
@@ -191,7 +190,7 @@ def load_humaid_dataset(
         gold_copy = gold_copy[gold_copy['event'] == event]
     
     # Shuffle the gold data
-    gold_copy = gold_copy.sample(frac=1, random_state=seed).reset_index(drop=True)
+    gold_copy = gold_copy.sample(frac=1).reset_index(drop=True)
 
     half_point = len(gold_copy) // 2
     trainingSet_1 = gold_copy.iloc[:half_point].copy()
@@ -210,8 +209,7 @@ def load_dataset_helper(
     pseudo_label_dir=None,
     event=None,
     lbcl=None,
-    set_num=None,
-    seed=None
+    set_num=None
 ):
     """Helper function to load datasets based on dataset type."""
     
@@ -242,7 +240,7 @@ def load_dataset_helper(
         }
     elif task_name == 'humaid':
         # Delegate to specific HumAID loader which handles TSV
-        return load_humaid_dataset(data_dir, pseudo_label_dir, event, lbcl, set_num, use_correct_labels_only, seed)
+        return load_humaid_dataset(data_dir, pseudo_label_dir, event, lbcl, set_num, use_correct_labels_only)
 
     
     # Construct paths dynamically
