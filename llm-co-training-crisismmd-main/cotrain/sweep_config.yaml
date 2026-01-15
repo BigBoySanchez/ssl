@@ -1,0 +1,25 @@
+program: sweep_runner.py
+method: bayes
+metric:
+  name: f1
+  goal: maximize
+parameters:
+  learning_rate:
+    values: [1e-5, 2e-5, 3e-5, 5e-5]
+  epoch_patience:
+    values: [3, 5, 8]
+  num_epochs:
+    values: [10, 15, 20]
+  plm_id:
+    value: "bert-tweet"
+  seed:
+    values: [42, 1234, 100]
+
+# These args will be passed to sweep_runner.py by the user when initializing the sweep agent or handled via command arguments 
+# BUT sweep_runner.py must accept them.
+# The sweep configuration in W&B usually passes parameters as --param value.
+# sweep_runner.py is designed to read them from wandb.config, not necessarily command line args for params.
+# However, the 'program' (sweep_runner.py) is called by W&B agent.
+# W&B agent usually calls `program` and may pass params as args if configured to do so, 
+# but simply using `wandb.init()` inside the script grabs the config from the agent process.
+# So this config file is correct.

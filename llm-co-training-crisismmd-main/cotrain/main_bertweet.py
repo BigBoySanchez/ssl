@@ -35,7 +35,7 @@ load_dotenv()
 
 # Local imports
 # sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from utils import delete_saved_models, log_message, str2bool
+from utils import delete_saved_models, log_message, str2bool, calculate_ece
 from data_processor import TextDataset
 from models import RoBERTa, BERT, DeBERTa, RoBERTaLarge, TransformerModel, BERTweet, ClassifyCLIP
 from loss import SmoothCrossEntropyLoss
@@ -52,7 +52,7 @@ import pandas as pd
 # Constants
 ROOT = Path(__file__).resolve().parent.parent
 MAX_LEN = 300 # usually 300 but CLIP model requires 77 - ValueError: Sequence length must be less than max_position_embeddings (got `sequence length`: 300 and max_position_embeddings: 77 
-EPOCH_PATIENCE = 5
+# EPOCH_PATIENCE = 5 # Removed constant, using args.epoch_patience
 
 # Dataset configurations
 
@@ -216,6 +216,17 @@ def evaluate_models(model_1, model_2, eval_dataloader, device_1, device_2):
             
             # Ensemble predictions
             val_probs = val_probs_1.cpu() + val_probs_2.cpu()
+            # If we want to return logits for ECE, we might need a different approach, 
+            # but calculate_ece in utils.py expects logits or we can adjust it to take probs.
+            # actually calculate_ece takes logits, so let's try to approximate or return probs 
+            # and adjust calculate_ece or pass probs.
+            # Wait, calculate_ece in utils.py takes logits and does softmax.
+            # If we have ensemble probs, we can't easily get back "ensemble logits" that produce those probs exactly via softmax 
+            # without some issues, but we can just pass log(probs) as logits.
+            
+            # For simplicity, let's just return the probs and we will modify calculate_ece to accept probs if needed 
+            # OR just pass log(probs).
+            
             out_ensembled = torch.argmax(val_probs, dim=1)
             out_ensembled = out_ensembled.cpu().detach().numpy()
             
@@ -229,7 +240,7 @@ def evaluate_models(model_1, model_2, eval_dataloader, device_1, device_2):
     cur_f1 = f1_score(y_true, y_pred, average='macro')
     acc = accuracy_score(y_true, y_pred)
     
-    return cur_f1, acc
+    return cur_f1, acc, y_true, y_pred, val_probs.numpy().tolist()
 
 def parse_arguments():
     """Parse and validate command line arguments."""
@@ -255,6 +266,10 @@ def parse_arguments():
     parser.add_argument("--event", type=str, default=None, help="Event name for humaid dataset")
     parser.add_argument("--lbcl", type=str, default=None, help="Labeled count per class string/int for humaid dataset")
     parser.add_argument("--set_num", type=str, default=None, help="Set number string for humaid dataset")
+    parser.add_argument("--learning_rate", type=float, default=1e-5, help="Learning rate")
+    parser.add_argument("--num_epochs", type=int, default=10, help="Number of epochs")
+    parser.add_argument("--epoch_patience", type=int, default=5, help="Epoch patience for early stopping")
+    parser.add_argument("--preds_file", type=str, default=None, help="File to save predictions (JSON)")
     args = parser.parse_args()
     
     #args.pseudo_label_shot = few_shot_samples_per_class[args.dataset] if args.few_shot else 0
@@ -367,7 +382,7 @@ def main():
     hyper_params = {
         'BATCH_SIZE': BATCH_SIZE,
         'MAX_LEN': MAX_LEN,
-        'EPOCH_PATIENCE': EPOCH_PATIENCE
+        'EPOCH_PATIENCE': args.epoch_patience
     }
     
     # Set up logging and experiment tracking
@@ -437,8 +452,8 @@ def main():
     
     # Training parameters
     training_params = {
-        'num_epochs': 10,
-        'learning_rate': 1e-5,
+        'num_epochs': args.num_epochs,
+        'learning_rate': args.learning_rate,
         'accumulation_steps': int(64 / BATCH_SIZE)
     }
     
@@ -558,17 +573,48 @@ def main():
     eval_split = 'val' if args.dataset in ['swag', 'hellaswag', 'qqp', 'mnli'] else 'test'
     eval_dataloader = dataloaders['test_dataloader']
     
-    cur_f1, acc = evaluate_models(model_1, model_2, eval_dataloader, device_1, device_2)
+    cur_f1, acc, y_true, y_pred, y_probs = evaluate_models(model_1, model_2, eval_dataloader, device_1, device_2)
+    
+    # Calculate ECE
+    # y_probs is sum of softmax probs from two models, so it's 2 * average_prob if we don't divide by 2.
+    # evaluate_models adds them: val_probs_1.cpu() + val_probs_2.cpu()
+    # So range is [0, 2]. We should normalize to [0, 1] for ECE calculation if we treat them as probs.
+    # We can pass log(probs/2) as logits to calculate_ece.
+    
+    y_probs_norm = np.array(y_probs) / 2.0
+    # Avoid log(0)
+    epsilon = 1e-15
+    y_logits_approx = np.log(np.clip(y_probs_norm, epsilon, 1.0))
+    
+    ece = calculate_ece(y_logits_approx, y_true)
     
     # Log and print final results
     result_msg = (f"\n\nHf Model: {hf_model_name} PLM: {args.plm_id} Dataset: {args.dataset}, NumShots: {args.pseudo_label_shot}, "
                  f"N: {N} {eval_split.capitalize()} SEED: {args.seed} F1: {cur_f1:.4f}, "
-                 f"{eval_split.capitalize()} Accuracy: {acc:.4f}")
+                 f"{eval_split.capitalize()} Accuracy: {acc:.4f}, ECE: {ece:.4f}")
     
     log_message(message=result_msg, args=args)
     
     msg = f"\nTotal time taken: {time.time() - st:.2f} seconds"
     log_message(message=msg, args=args)
+    
+    # Print metrics for parser
+    metrics_json = {
+        "f1": cur_f1,
+        "accuracy": acc,
+        "ece": ece
+    }
+    print(f"JSON_OUTPUT: {json.dumps(metrics_json)}")
+            
+    # Save preds to file if requested
+    if args.preds_file:
+        preds_data = {
+            "y_true": y_true,
+            "y_pred": y_pred,
+            "y_probs": y_probs
+        }
+        with open(args.preds_file, 'w') as f:
+            json.dump(preds_data, f)
 
 
 if __name__ == "__main__":
