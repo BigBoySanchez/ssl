@@ -76,7 +76,7 @@ sweep config:
 - **Epochs**: num_epochs
 - **Patience**: epoch_patience
 
-
-I need to do Hyper Parameter Tuning for @llm-co-training-crisismmd-main/cotrain now. We need to use Weights and Biases to track everything. Specifically:
-
-1. Make a script that takes an event and lbcl and outputs a sweep.yaml, passing those in along with 
+## TODO
+- automate sweep rotation
+- have main_bertweet errors propogate to the wrapper
+- have main_bertweet output propogate too (if not in wandb logs already)
