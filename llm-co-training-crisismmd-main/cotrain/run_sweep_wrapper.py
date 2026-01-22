@@ -9,28 +9,29 @@ import re
 import numpy as np
 import wandb
 
-def run_single_set(event, lbcl, set_num, lr, num_epochs, epoch_patience):
+def run_single_set(args, set_num):
     """Run the main script for a single set and return the metrics."""
     cmd = [
         "python", "main_bertweet.py",
-        "--dataset", "humaid",
-        "--plm_id", "roberta-base",
-        "--hf_model_id_short", "N/A",
-        "--metric_combination", "cv",
-        "--setup_local_logging",
-        "--seed", "1234",
-        "--pseudo_label_dir", "anh_4o",
-        "--data_dir", "../../data",
-        "--cuda_devices", "0,1",
-        "--preds_file", "preds.json",
-        "--use_wandb",
-        "--event", event,
-        "--lbcl", lbcl,
+        "--dataset", args.dataset,
+        "--hf_model_id_short", args.hf_model_id_short,
+        "--plm_id", args.plm_id,
+        "--metric_combination", args.metric_combination,
+        "--seed", str(args.seed),
+        "--pseudo_label_dir", args.pseudo_label_dir,
+        "--data_dir", args.data_dir,
+        "--cuda_devices", args.cuda_devices,
+        "--preds_file", args.preds_file,
+        "--event", args.event,
+        "--lbcl", args.lbcl,
         "--set_num", str(set_num),
-        "--lr", str(lr),
-        "--num_epochs", str(num_epochs),
-        "--epoch_patience", str(epoch_patience)
+        "--lr", str(args.lr),
+        "--num_epochs", str(args.num_epochs),
+        "--epoch_patience", str(args.epoch_patience)
     ]
+    
+    if args.setup_local_logging:
+        cmd.insert(3, "--setup_local_logging")
     
     result = subprocess.run(cmd, capture_output=True, text=True)
     output = result.stdout + result.stderr
@@ -50,8 +51,19 @@ def run_single_set(event, lbcl, set_num, lr, num_epochs, epoch_patience):
 
 def main():
     parser = argparse.ArgumentParser(description="Run co-training sweep over 3 sets")
+    parser.add_argument("--dataset", type=str, default="humaid", help="Dataset name")
+    parser.add_argument("--hf_model_id_short", type=str, default="N/A", help="Short HF model id")
+    parser.add_argument("--plm_id", type=str, default="roberta-base", help="Backbone PLM id")
+    parser.add_argument("--metric_combination", type=str, default="cv", help="Metric combination")
+    parser.add_argument("--setup_local_logging", action="store_true", default=False, help="Setup local logging")
+    parser.add_argument("--seed", type=int, default=1234, help="Random seed")
+    parser.add_argument("--pseudo_label_dir", type=str, default="anh_4o", help="Directory containing LLM pseudo labels")
+    parser.add_argument("--data_dir", type=str, default="../../data", help="Base data directory")
+    parser.add_argument("--cuda_devices", type=str, default="0,1", help="CUDA devices")
+    parser.add_argument("--preds_file", type=str, default="preds.json", help="Predictions output file")
     parser.add_argument("--event", type=str, required=True, help="Event name")
     parser.add_argument("--lbcl", type=str, required=True, help="Labeled count per class")
+    parser.add_argument("--set_num", type=str, help="Set number (not used in wrapper)")
     parser.add_argument("--lr", type=float, required=True, help="Learning rate")
     parser.add_argument("--num_epochs", type=int, required=True, help="Number of epochs")
     parser.add_argument("--epoch_patience", type=int, required=True, help="Epoch patience")
@@ -63,8 +75,17 @@ def main():
         project="cotrain-hyperparameter-tuning",
         name=f"{args.event}_{args.lbcl}_lr{args.lr}_ep{args.num_epochs}_pat{args.epoch_patience}",
         config={
+            "dataset": args.dataset,
+            "hf_model_id_short": args.hf_model_id_short,
+            "plm_id": args.plm_id,
+            "metric_combination": args.metric_combination,
+            "seed": args.seed,
+            "pseudo_label_dir": args.pseudo_label_dir,
             "event": args.event,
             "lbcl": args.lbcl,
+            "data_dir": args.data_dir,
+            "cuda_devices": args.cuda_devices,
+            "preds_file": args.preds_file,
             "lr": args.lr,
             "num_epochs": args.num_epochs,
             "epoch_patience": args.epoch_patience
@@ -74,7 +95,7 @@ def main():
     results = []
     for set_num in [1, 2, 3]:
         print(f"Running set {set_num}")
-        metrics = run_single_set(args.event, args.lbcl, set_num, args.lr, args.num_epochs, args.epoch_patience)
+        metrics = run_single_set(args, set_num)
         if metrics:
             f1, acc, ece = metrics
             results.append(metrics)
