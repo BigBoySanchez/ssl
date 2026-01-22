@@ -21,7 +21,6 @@ def run_single_set(args, set_num):
         "--pseudo_label_dir", args.pseudo_label_dir,
         "--data_dir", args.data_dir,
         "--cuda_devices", args.cuda_devices,
-        "--preds_file", args.preds_file,
         "--event", args.event,
         "--lbcl", args.lbcl,
         "--set_num", str(set_num),
@@ -60,7 +59,6 @@ def main():
     parser.add_argument("--pseudo_label_dir", type=str, default="anh_4o", help="Directory containing LLM pseudo labels")
     parser.add_argument("--data_dir", type=str, default="../../data", help="Base data directory")
     parser.add_argument("--cuda_devices", type=str, default="0,1", help="CUDA devices")
-    parser.add_argument("--preds_file", type=str, default="preds.json", help="Predictions output file")
     parser.add_argument("--event", type=str, required=True, help="Event name")
     parser.add_argument("--lbcl", type=str, required=True, help="Labeled count per class")
     parser.add_argument("--set_num", type=str, help="Set number (not used in wrapper)")
@@ -85,7 +83,6 @@ def main():
             "lbcl": args.lbcl,
             "data_dir": args.data_dir,
             "cuda_devices": args.cuda_devices,
-            "preds_file": args.preds_file,
             "lr": args.lr,
             "num_epochs": args.num_epochs,
             "epoch_patience": args.epoch_patience

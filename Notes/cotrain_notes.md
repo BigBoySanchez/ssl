@@ -63,7 +63,6 @@ sweep config:
 - cuda_devices = 0,1
 - num_epochs = ?
 - epoch_patience = ?
-- preds_file = preds.json
 
 #### 1. Initialization (Weight Generation) & 2. Co-training
 - **Epochs**: num_epochs

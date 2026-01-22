@@ -7,7 +7,7 @@ This generator follows the sweep specification in cotrain_notes.md:
 
 - Sweep: lr, num_epochs, epoch_patience
 - Fixed (but tracked): dataset, hf_model_id_short, plm_id, metric_combination,
-  seed, pseudo_label_dir, event, lbcl, set_num, data_dir, cuda_devices, preds_file
+  seed, pseudo_label_dir, event, lbcl, set_num, data_dir, cuda_devices
 - Runs a wrapper script (default: run_sweep_wrapper.py)
 
 IMPORTANT:
@@ -92,12 +92,6 @@ def _parse_args() -> argparse.Namespace:
         default="0,1",
         help="CUDA devices (comma-separated), e.g., 0,1",
     )
-    p.add_argument(
-        "--preds_file",
-        type=str,
-        default="preds.json",
-        help="Predictions output file (default: preds.json)",
-    )
 
     # Sweep behavior
     p.add_argument(
@@ -139,7 +133,6 @@ def generate_sweep_yaml(
     pseudo_label_dir: str,
     data_dir: str,
     cuda_devices: str,
-    preds_file: str,
     method: str,
     metric_name: str,
     metric_goal: str,
@@ -164,7 +157,6 @@ def generate_sweep_yaml(
         "set_num": {"value": set_num},
         "data_dir": {"value": data_dir},
         "cuda_devices": {"value": cuda_devices},
-        "preds_file": {"value": preds_file},
     }
 
     # Critical fix:
@@ -201,7 +193,6 @@ def main() -> None:
         pseudo_label_dir=args.pseudo_label_dir,
         data_dir=args.data_dir,
         cuda_devices=args.cuda_devices,
-        preds_file=args.preds_file,
         method=args.method,
         metric_name=args.metric_name,
         metric_goal=args.metric_goal,
