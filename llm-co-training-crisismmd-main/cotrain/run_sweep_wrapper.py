@@ -31,7 +31,7 @@ def run_single_set(args, set_num):
     ]
     
     if args.setup_local_logging:
-        cmd.insert(3, "--setup_local_logging")
+        cmd.insert(2, "--setup_local_logging")
     
     result = subprocess.run(cmd, capture_output=True, text=True)
     output = result.stdout + result.stderr

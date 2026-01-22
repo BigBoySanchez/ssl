@@ -3,16 +3,18 @@
 
 Generate a W&B sweep configuration YAML for the co-training project.
 
-This generator is based on the hyperparameter sweep requirements captured in
-cotrain_notes.md (see "Sweep Config"). It supports:
+This generator follows the sweep specification in cotrain_notes.md:
 
-* Sweeping: lr, num_epochs, epoch_patience
-* Passing through (and recording in W&B config): dataset, hf_model_id_short,
-  plm_id, metric_combination, seed, pseudo_label_dir, event, lbcl, set_num,
-  data_dir, cuda_devices, preds_file
+- Sweep: lr, num_epochs, epoch_patience
+- Fixed (but tracked): dataset, hf_model_id_short, plm_id, metric_combination,
+  seed, pseudo_label_dir, event, lbcl, set_num, data_dir, cuda_devices, preds_file
+- Runs a wrapper script (default: run_sweep_wrapper.py)
 
-The output YAML is intended to run a wrapper script (default:
-run_sweep_wrapper.py) which then launches the actual training script.
+IMPORTANT:
+W&B sweep "command" templates only reliably substitute the special placeholders
+(${env}, ${interpreter}, ${program}, ${args}). To ensure *all* parameters are
+passed correctly, this generator uses `${args}` and defines the full argument
+set under `parameters:` (fixed params use `value:`).
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ def _parse_args() -> argparse.Namespace:
         help="Output YAML file (default: sweep.yaml)",
     )
 
-    # Program to execute under the sweep
+    # Entrypoint to execute under the sweep
     p.add_argument(
         "--program",
         type=str,
@@ -64,8 +66,10 @@ def _parse_args() -> argparse.Namespace:
         default="cv",
         help="Metric combination (default: cv)",
     )
-    # In the notes, --setup_local_logging is part of the standard run command,
-    # so we include it by default and allow disabling explicitly.
+
+    # In the notes, --setup_local_logging is part of the standard run command.
+    # W&B `${args}` cannot emit a bare flag reliably for argparse store_true,
+    # so we include it explicitly by default and allow disabling.
     p.add_argument(
         "--no_setup_local_logging",
         action="store_false",
@@ -73,6 +77,7 @@ def _parse_args() -> argparse.Namespace:
         help="Disable --setup_local_logging in the generated command",
     )
     p.set_defaults(setup_local_logging=True)
+
     p.add_argument("--seed", type=int, default=1234, help="Random seed")
     p.add_argument(
         "--pseudo_label_dir",
@@ -80,12 +85,7 @@ def _parse_args() -> argparse.Namespace:
         default="anh_4o",
         help="Directory containing LLM pseudo labels",
     )
-    p.add_argument(
-        "--data_dir",
-        type=str,
-        default="../../data",
-        help="Base data directory",
-    )
+    p.add_argument("--data_dir", type=str, default="../../data", help="Base data directory")
     p.add_argument(
         "--cuda_devices",
         type=str,
@@ -152,7 +152,7 @@ def generate_sweep_yaml(
         "num_epochs": {"values": [5, 10, 15, 20]},
         "epoch_patience": {"values": [3, 5, 7, 10]},
 
-        # Fixed parameters that should still be tracked in W&B config
+        # Fixed parameters that should still be tracked (and passed) via `${args}`
         "dataset": {"value": dataset},
         "hf_model_id_short": {"value": hf_model_id_short},
         "plm_id": {"value": plm_id},
@@ -167,45 +167,12 @@ def generate_sweep_yaml(
         "preds_file": {"value": preds_file},
     }
 
-    # Build the command. Keep it explicit for readability.
-    command: List[str] = [
-        "${env}",
-        "python",
-        "${program}",
-        "--dataset",
-        "${dataset}",
-        "--hf_model_id_short",
-        "${hf_model_id_short}",
-        "--plm_id",
-        "${plm_id}",
-        "--metric_combination",
-        "${metric_combination}",
-        "--seed",
-        "${seed}",
-        "--pseudo_label_dir",
-        "${pseudo_label_dir}",
-        "--event",
-        "${event}",
-        "--lbcl",
-        "${lbcl}",
-        "--set_num",
-        "${set_num}",
-        "--data_dir",
-        "${data_dir}",
-        "--cuda_devices",
-        "${cuda_devices}",
-        "--num_epochs",
-        "${num_epochs}",
-        "--epoch_patience",
-        "${epoch_patience}",
-        "--lr",
-        "${lr}",
-        "--preds_file",
-        "${preds_file}",
-    ]
-
+    # Critical fix:
+    # Use `${args}` so W&B reliably passes *all* parameters/values.
+    command: List[str] = ["${env}", "${interpreter}", "${program}"]
     if setup_local_logging:
-        command.insert(3, "--setup_local_logging")
+        command.append("--setup_local_logging")
+    command.append("${args}")
 
     sweep_config: Dict[str, Any] = {
         "program": program,
@@ -214,7 +181,6 @@ def generate_sweep_yaml(
         "parameters": parameters,
         "command": command,
     }
-
     return sweep_config
 
 
