@@ -77,6 +77,7 @@ sweep config:
 - **Patience**: epoch_patience
 
 ## TODO
-- automate sweep rotation
-- have main_bertweet errors propogate to the wrapper
-- have main_bertweet output propogate too (if not in wandb logs already)
+- [ ] automate sweep rotation
+- [x] have main_bertweet errors propogate to the wrapper
+- [x] have main_bertweet output propogate too (if not in wandb logs already)
+- [x] add eval on dev, along with test

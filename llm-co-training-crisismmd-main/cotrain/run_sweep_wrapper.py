@@ -32,8 +32,29 @@ def run_single_set(args, set_num):
     if args.setup_local_logging:
         cmd.insert(2, "--setup_local_logging")
     
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    output = result.stdout + result.stderr
+    # Use Popen to stream output
+    process = subprocess.Popen(
+        cmd, 
+        stdout=subprocess.PIPE, 
+        stderr=subprocess.STDOUT, 
+        text=True, 
+        bufsize=1, 
+        universal_newlines=True
+    )
+    
+    full_output = []
+    
+    # Read output line by line as it is generated
+    for line in process.stdout:
+        print(line, end='', flush=True)  # Stream to console
+        full_output.append(line)
+    
+    process.wait()
+    
+    if process.returncode != 0:
+        raise subprocess.CalledProcessError(process.returncode, cmd)
+        
+    output = "".join(full_output)
     
     # Parse the final results from output
     # Look for the line with F1, Accuracy, ECE
@@ -45,8 +66,9 @@ def run_single_set(args, set_num):
         return f1, acc, ece
     else:
         print(f"Failed to parse results for set {set_num}")
-        print(output)
+        # print(output) # Already printed via streaming
         return None
+
 
 def main():
     parser = argparse.ArgumentParser(description="Run co-training sweep over 3 sets")

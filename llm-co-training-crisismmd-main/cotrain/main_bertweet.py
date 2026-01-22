@@ -606,22 +606,33 @@ def main():
     model_1.to(device_1)
     model_2.to(device_2)
     
-    # Evaluate models
-    eval_split = 'val' if args.dataset in ['swag', 'hellaswag', 'qqp', 'mnli'] else 'test'
-    eval_dataloader = dataloaders['test_dataloader']
+    # Evaluate models on Validation set
+    val_dataloader = dataloaders['val_dataloader']
+    val_f1, val_acc, val_ece = evaluate_models(model_1, model_2, val_dataloader, device_1, device_2)
+
+    val_result_msg = (f"\n\nHf Model: {hf_model_name} PLM: {args.plm_id} Dataset: {args.dataset}, NumShots: {args.pseudo_label_shot}, "
+                 f"N: {N} Validation SEED: {args.seed} F1: {val_f1:.4f}, "
+                 f"Validation Accuracy: {val_acc:.4f}, ECE: {val_ece:.4f}")
     
-    cur_f1, acc, ece = evaluate_models(model_1, model_2, eval_dataloader, device_1, device_2)
+    log_message(message=val_result_msg, args=args)
+
+    if hasattr(args, 'wandb_exp') and args.wandb_exp:
+        args.wandb_exp.log({"val_f1": val_f1, "val_accuracy": val_acc, "val_ece": val_ece})
+
+    # Evaluate models on Test set
+    test_dataloader = dataloaders['test_dataloader']
+    test_f1, test_acc, test_ece = evaluate_models(model_1, model_2, test_dataloader, device_1, device_2)
     
     # Log and print final results
     result_msg = (f"\n\nHf Model: {hf_model_name} PLM: {args.plm_id} Dataset: {args.dataset}, NumShots: {args.pseudo_label_shot}, "
-                 f"N: {N} {eval_split.capitalize()} SEED: {args.seed} F1: {cur_f1:.4f}, "
-                 f"{eval_split.capitalize()} Accuracy: {acc:.4f}, ECE: {ece:.4f}")
+                 f"N: {N} Test SEED: {args.seed} F1: {test_f1:.4f}, "
+                 f"Test Accuracy: {test_acc:.4f}, ECE: {test_ece:.4f}")
     
     log_message(message=result_msg, args=args)
     
     # Log to wandb if available
     if hasattr(args, 'wandb_exp') and args.wandb_exp:
-        args.wandb_exp.log({"final_f1": cur_f1, "final_accuracy": acc, "final_ece": ece})
+        args.wandb_exp.log({"test_f1": test_f1, "test_accuracy": test_acc, "test_ece": test_ece})
     
     msg = f"\nTotal time taken: {time.time() - st:.2f} seconds"
     log_message(message=msg, args=args)
