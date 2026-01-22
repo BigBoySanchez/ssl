@@ -33,9 +33,11 @@ import csv
 from dotenv import load_dotenv
 load_dotenv()
 
+import wandb
+
 # Local imports
 # sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from utils import delete_saved_models, log_message, str2bool, calculate_ece
+from utils import delete_saved_models, log_message, str2bool
 from data_processor import TextDataset
 from models import RoBERTa, BERT, DeBERTa, RoBERTaLarge, TransformerModel, BERTweet, ClassifyCLIP
 from loss import SmoothCrossEntropyLoss
@@ -52,7 +54,7 @@ import pandas as pd
 # Constants
 ROOT = Path(__file__).resolve().parent.parent
 MAX_LEN = 300 # usually 300 but CLIP model requires 77 - ValueError: Sequence length must be less than max_position_embeddings (got `sequence length`: 300 and max_position_embeddings: 77 
-# EPOCH_PATIENCE = 5 # Removed constant, using args.epoch_patience
+EPOCH_PATIENCE = 5
 
 # Dataset configurations
 
@@ -193,12 +195,27 @@ def get_batch_size(dataset, plm_id):
         # default fallback
         return 8
 
+def calculate_ece(y_true, y_pred, confidences, n_bins=10):
+    """Calculate Expected Calibration Error."""
+    bins = np.linspace(0, 1, n_bins + 1)
+    ece = 0.0
+    for i in range(n_bins):
+        bin_lower = bins[i]
+        bin_upper = bins[i + 1]
+        bin_mask = (confidences >= bin_lower) & (confidences < bin_upper)
+        if np.sum(bin_mask) > 0:
+            bin_acc = np.mean(np.array(y_pred)[bin_mask] == np.array(y_true)[bin_mask])
+            bin_conf = np.mean(np.array(confidences)[bin_mask])
+            ece += (np.sum(bin_mask) / len(y_true)) * abs(bin_acc - bin_conf)
+    return ece * 100  # as percentage
+
 def evaluate_models(model_1, model_2, eval_dataloader, device_1, device_2):
     """Evaluate ensembled models on provided dataloader."""
     model_1.eval()
     model_2.eval()
     y_true = []
     y_pred = []
+    confidences = []
     
     with torch.no_grad():
         for batch in eval_dataloader:
@@ -216,31 +233,27 @@ def evaluate_models(model_1, model_2, eval_dataloader, device_1, device_2):
             
             # Ensemble predictions
             val_probs = val_probs_1.cpu() + val_probs_2.cpu()
-            # If we want to return logits for ECE, we might need a different approach, 
-            # but calculate_ece in utils.py expects logits or we can adjust it to take probs.
-            # actually calculate_ece takes logits, so let's try to approximate or return probs 
-            # and adjust calculate_ece or pass probs.
-            # Wait, calculate_ece in utils.py takes logits and does softmax.
-            # If we have ensemble probs, we can't easily get back "ensemble logits" that produce those probs exactly via softmax 
-            # without some issues, but we can just pass log(probs) as logits.
-            
-            # For simplicity, let's just return the probs and we will modify calculate_ece to accept probs if needed 
-            # OR just pass log(probs).
-            
             out_ensembled = torch.argmax(val_probs, dim=1)
+            confidence = torch.max(val_probs, dim=1)[0]
             out_ensembled = out_ensembled.cpu().detach().numpy()
+            confidence = confidence.cpu().detach().numpy()
             
             # Collect predictions and ground truth
             y_pred_batch = out_ensembled.tolist()
             y_true_batch = batch_1['labels'].cpu().numpy().tolist()
+            confidences_batch = confidence.tolist()
             
             y_true.extend(y_true_batch)
             y_pred.extend(y_pred_batch)
+            confidences.extend(confidences_batch)
     
     cur_f1 = f1_score(y_true, y_pred, average='macro')
     acc = accuracy_score(y_true, y_pred)
     
-    return cur_f1, acc, y_true, y_pred, val_probs.numpy().tolist()
+    # Calculate ECE
+    ece = calculate_ece(y_true, y_pred, confidences)
+    
+    return cur_f1, acc, ece
 
 def parse_arguments():
     """Parse and validate command line arguments."""
@@ -258,6 +271,7 @@ def parse_arguments():
     parser.add_argument("--exp_name", type=str, default="lg-cotr", help="Experiment name")
     parser.add_argument("--setup_local_logging", action="store_true", default=False, help="Setup local logging")
     parser.add_argument("--comet_ml", action="store_true", default=False, help="Use comet_ml for experiment tracking")
+    parser.add_argument("--use_wandb", action="store_true", default=False, help="Use wandb for experiment tracking")
     parser.add_argument("--use_correct_labels_only", type=str2bool, default=False, help="Use correct labels only")
     parser.add_argument("--cuda_devices", type=str, default="0,1,2,3", help="Comma-separated list of CUDA device IDs to use (e.g., 0,1)")
     parser.add_argument("--imb_training", action="store_true", default=False, help="Use imbalanced training")
@@ -266,10 +280,9 @@ def parse_arguments():
     parser.add_argument("--event", type=str, default=None, help="Event name for humaid dataset")
     parser.add_argument("--lbcl", type=str, default=None, help="Labeled count per class string/int for humaid dataset")
     parser.add_argument("--set_num", type=str, default=None, help="Set number string for humaid dataset")
-    parser.add_argument("--learning_rate", type=float, default=1e-5, help="Learning rate")
-    parser.add_argument("--num_epochs", type=int, default=10, help="Number of epochs")
-    parser.add_argument("--epoch_patience", type=int, default=5, help="Epoch patience for early stopping")
-    parser.add_argument("--preds_file", type=str, default=None, help="File to save predictions (JSON)")
+    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate for training")
+    parser.add_argument("--num_epochs", type=int, default=10, help="Number of epochs for training")
+    parser.add_argument("--epoch_patience", type=int, default=5, help="Patience for early stopping")
     args = parser.parse_args()
     
     #args.pseudo_label_shot = few_shot_samples_per_class[args.dataset] if args.few_shot else 0
@@ -332,6 +345,28 @@ def setup_comet_experiment(args):
     experiment.set_name(f"{args.dataset}_{args.saved_model_name_suffix}")
     return experiment
 
+def setup_wandb_experiment(args):
+    """Set up Wandb experiment."""
+    if not hasattr(args, 'use_wandb') or not args.use_wandb:
+        return None
+    
+    wandb.init(
+        project="cotrain-hyperparameter-tuning",
+        name=f"{args.dataset}_{args.saved_model_name_suffix}",
+        config={
+            "lr": args.lr,
+            "num_epochs": args.num_epochs,
+            "epoch_patience": args.epoch_patience,
+            "dataset": args.dataset,
+            "plm_id": args.plm_id,
+            "seed": args.seed,
+            "event": args.event,
+            "lbcl": args.lbcl,
+            "set_num": args.set_num
+        }
+    )
+    return wandb
+
 # load_dataset_helper moved to data_utils.py
 
 def main():
@@ -388,8 +423,10 @@ def main():
     # Set up logging and experiment tracking
     logger = setup_local_logging(args)
     comet_exp = setup_comet_experiment(args)
+    wandb_exp = setup_wandb_experiment(args)
     args.logger = logger
     args.comet_exp = comet_exp
+    args.wandb_exp = wandb_exp
     
     log_message(message=f"Using devices: {device_1}, {device_2}", args=args)
     log_message(message=f"Devices: {device_1}, {device_2}", args=args)
@@ -453,7 +490,7 @@ def main():
     # Training parameters
     training_params = {
         'num_epochs': args.num_epochs,
-        'learning_rate': args.learning_rate,
+        'learning_rate': args.lr,
         'accumulation_steps': int(64 / BATCH_SIZE)
     }
     
@@ -526,8 +563,8 @@ def main():
     delete_saved_models(model_2_path)
     
     # Set up fine-tuning parameters
-    training_params['num_epochs'] = 100
-    hyper_params['EPOCH_PATIENCE'] = 10
+    training_params['num_epochs'] = args.num_epochs
+    hyper_params['EPOCH_PATIENCE'] = args.epoch_patience
     
     # Set up optimizers for fine-tuning
     optimizer_params = setup_optimization(
@@ -573,20 +610,7 @@ def main():
     eval_split = 'val' if args.dataset in ['swag', 'hellaswag', 'qqp', 'mnli'] else 'test'
     eval_dataloader = dataloaders['test_dataloader']
     
-    cur_f1, acc, y_true, y_pred, y_probs = evaluate_models(model_1, model_2, eval_dataloader, device_1, device_2)
-    
-    # Calculate ECE
-    # y_probs is sum of softmax probs from two models, so it's 2 * average_prob if we don't divide by 2.
-    # evaluate_models adds them: val_probs_1.cpu() + val_probs_2.cpu()
-    # So range is [0, 2]. We should normalize to [0, 1] for ECE calculation if we treat them as probs.
-    # We can pass log(probs/2) as logits to calculate_ece.
-    
-    y_probs_norm = np.array(y_probs) / 2.0
-    # Avoid log(0)
-    epsilon = 1e-15
-    y_logits_approx = np.log(np.clip(y_probs_norm, epsilon, 1.0))
-    
-    ece = calculate_ece(y_logits_approx, y_true)
+    cur_f1, acc, ece = evaluate_models(model_1, model_2, eval_dataloader, device_1, device_2)
     
     # Log and print final results
     result_msg = (f"\n\nHf Model: {hf_model_name} PLM: {args.plm_id} Dataset: {args.dataset}, NumShots: {args.pseudo_label_shot}, "
@@ -595,26 +619,12 @@ def main():
     
     log_message(message=result_msg, args=args)
     
+    # Log to wandb if available
+    if hasattr(args, 'wandb_exp') and args.wandb_exp:
+        args.wandb_exp.log({"final_f1": cur_f1, "final_accuracy": acc, "final_ece": ece})
+    
     msg = f"\nTotal time taken: {time.time() - st:.2f} seconds"
     log_message(message=msg, args=args)
-    
-    # Print metrics for parser
-    metrics_json = {
-        "f1": cur_f1,
-        "accuracy": acc,
-        "ece": ece
-    }
-    print(f"JSON_OUTPUT: {json.dumps(metrics_json)}")
-            
-    # Save preds to file if requested
-    if args.preds_file:
-        preds_data = {
-            "y_true": y_true,
-            "y_pred": y_pred,
-            "y_probs": y_probs
-        }
-        with open(args.preds_file, 'w') as f:
-            json.dump(preds_data, f)
 
 
 if __name__ == "__main__":

@@ -247,12 +247,20 @@ class WeightGenerator:
             st = time.time()
             
             log_message(f'Time taken for Epoch {epoch + 1}:{epoch_time:.2f} - F1: {cur_f1:.4f}', self.args)
+            
+            # Log to wandb if available
+            if hasattr(self.args, 'wandb_exp') and self.args.wandb_exp:
+                self.args.wandb_exp.log({"weight_gen_epoch": epoch + 1, "weight_gen_f1": cur_f1, "weight_gen_time": epoch_time})
 
             if cur_f1 > self.best_f1:
                 self.best_f1 = cur_f1
                 self.best_epoch = epoch
         
         log_message(f'Best F1:{self.best_f1:.4f} - Best Epoch:{self.best_epoch + 1}', self.args)
+        
+        # Log to wandb if available
+        if hasattr(self.args, 'wandb_exp') and self.args.wandb_exp:
+            self.args.wandb_exp.log({"weight_gen_best_f1": self.best_f1, "weight_gen_best_epoch": self.best_epoch + 1})
         
         # Calculate and return final weights
         weights_1, weights_2 = self._calculate_weights()
@@ -562,6 +570,10 @@ class CoTrainer:
             msg = f'Time taken for Epoch {epoch + 1}: {epoch_time:.2f}s - F1: {current_f1:.8f}'
             log_message(message=msg, args=self.args)
             
+            # Log to wandb if available
+            if hasattr(self.args, 'wandb_exp') and self.args.wandb_exp:
+                self.args.wandb_exp.log({"co_train_epoch": epoch + 1, "co_train_f1": current_f1, "co_train_time": epoch_time})
+            
             # Check for improvement
             if current_f1 > self.best_f1:
                 self.best_f1 = current_f1
@@ -728,6 +740,10 @@ class DualModelTrainer:
             msg = f'Time taken for Epoch {epoch + 1}:{epoch_time:.2f} - F1: {current_f1:.4f}'
             log_message(msg, self.args)
             
+            # Log to wandb if available
+            if hasattr(self.args, 'wandb_exp') and self.args.wandb_exp:
+                self.args.wandb_exp.log({"fine_tune_epoch": epoch + 1, "fine_tune_f1": current_f1, "fine_tune_time": epoch_time})
+            
             if current_f1 > self.best_f1:
                 self.best_f1 = current_f1
                 self.best_epoch = epoch
@@ -738,5 +754,9 @@ class DualModelTrainer:
         
         msg = f'Best F1:{self.best_f1:.4f} - Best Epoch:{self.best_epoch}'
         log_message(msg, self.args)
+        
+        # Log to wandb if available
+        if hasattr(self.args, 'wandb_exp') and self.args.wandb_exp:
+            self.args.wandb_exp.log({"fine_tune_best_f1": self.best_f1, "fine_tune_best_epoch": self.best_epoch})
 
 
