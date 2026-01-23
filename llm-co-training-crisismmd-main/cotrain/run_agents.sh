@@ -68,7 +68,9 @@ launch_agent() {
     # Remove existing container if it exists (cleanup from previous run)
     docker rm -f "${cname}" >/dev/null 2>&1 || true
 
-    docker run -d --gpus "device=${gpu_ids}" \
+    # Pass device list with extra quotes to satisfy Docker CLI parser for lists
+    # e.g., --gpus '"device=0,1"'
+    docker run -d --gpus "\"device=${gpu_ids}\"" \
       -v ${DATA_MOUNT} \
       -v ${ARTIFACT_MOUNT} \
       --name "${cname}" \
