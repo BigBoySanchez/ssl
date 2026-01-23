@@ -39,13 +39,13 @@ FIXED_PARAMS = {
     "hf_model_id_short": "N/A",
     "plm_id": ["clip", "bert-tweet", "roberta-base", "bert-base", "deberta-base", "roberta-large"],
     "metric_combination": "cv",
-    "setup_local_logging": True,
+    "setup_local_logging": False,
     "seed": 1234,
     "pseudo_label_dir": "anh_4o",
     "data_dir": "../../data", # Assuming run from cotrain/
     "cuda_devices": "0,1", # Agents will override visibility, but this is passed to script
-    "method": "grid",
-    "metric_name": "avg_f1",
+    "method": "bayes",
+    "metric_name": "val_f1",
     "metric_goal": "maximize",
     "accumulation_steps_min": 1,
     "accumulation_steps_max": 4,

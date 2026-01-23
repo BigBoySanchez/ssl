@@ -165,7 +165,8 @@ def main():
         wandb.log({
             "avg_f1": avg_f1,
             "avg_accuracy": avg_acc,
-            "avg_ece": avg_ece
+            "avg_ece": avg_ece,
+            "val_f1": avg_f1  # Alias for sweep metric compatibility
         })
         
         print(f"Average F1: {avg_f1:.4f}, Average Accuracy: {avg_acc:.4f}, Average ECE: {avg_ece:.4f}")
