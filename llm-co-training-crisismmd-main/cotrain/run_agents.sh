@@ -70,7 +70,7 @@ launch_agent() {
 
     # Pass device list with extra quotes to satisfy Docker CLI parser for lists
     # e.g., --gpus '"device=0,1"'
-    docker run -d --gpus "\"device=${gpu_ids}\"" \
+    docker run -d --gpus "device=${gpu_ids}" \
       -v ${DATA_MOUNT} \
       -v ${ARTIFACT_MOUNT} \
       --name "${cname}" \
@@ -79,14 +79,6 @@ launch_agent() {
         mkdir -p /workspace/ssl/artifacts && \
         apt-get update -y && apt-get install -y --no-install-recommends git && \
         cd /workspace/ssl && \
-        # Fetch latest code. Assuming the repo is "llm-co-training-crisismmd-main" or similar.
-        # Since we do not know the exact git remote URL or if it is mounted, 
-        # we will assume the standard flow: git fetch if it exists, or likely just use what is there.
-        # Wait, make_container.sh does: git fetch origin && git reset --hard origin/main
-        # We will assume valid git repo in /workspace/ssl or we might need to clone it.
-        # If the container image already has the repo...
-        # Let us try to update strictly if possible, otherwise just run.
-        if [ -d .git ]; then git fetch origin && git reset --hard origin/main; fi && \
         cd llm-co-training-crisismmd-main/cotrain && \
         echo "[Worker] Starting agent for sweep '${sweep_idx}' ('${sweep_id}')" && \
         wandb agent --count '${COUNT}' '${ENTITY}'/'${PROJECT}'/'${sweep_id}' && \
