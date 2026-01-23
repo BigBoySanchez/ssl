@@ -116,7 +116,7 @@ def main():
     
     # Initialize wandb for this sweep run
     wandb.init(
-        project="cotrain-hyperparameter-tuning",
+        project="lg-cotrain-humaid",
         name=f"{args.event}_{args.lbcl}_lr{args.lr}_ep{args.num_epochs}_pat{args.epoch_patience}",
         config={
             "dataset": args.dataset,

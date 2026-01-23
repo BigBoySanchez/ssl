@@ -49,12 +49,14 @@ run_worker() {
       
       # Run wandb agent
       # We explicitly set CUDA_VISIBLE_DEVICES for this agent process
-      CUDA_VISIBLE_DEVICES="$gpu_ids" wandb agent \
-        --count "$COUNT" \
-        "$full_sweep_path" \
-        > "agent_${worker_id}_sweep_${sweep_id}.log" 2>&1
+      # We allow failure (|| true) and sleep to prevent spin-locking if it fails immediately
+      (
+        export CUDA_VISIBLE_DEVICES="$gpu_ids"
+        wandb agent --count "$COUNT" "$full_sweep_path" > "agent_${worker_id}_sweep_${sweep_id}.log" 2>&1 || true
+      )
         
       echo "[Worker $worker_id] Finished sweep $sweep_id batch."
+      sleep 5 # Sleep for a bit to avoid hammering API if loops are fast
     done
     echo "[Worker $worker_id] Completed one full pass of all sweeps. Restarting loop..."
   done

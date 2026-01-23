@@ -53,7 +53,8 @@ import pandas as pd
 
 # Constants
 ROOT = Path(__file__).resolve().parent.parent
-MAX_LEN = 300 # usually 300 but CLIP model requires 77 - ValueError: Sequence length must be less than max_position_embeddings (got `sequence length`: 300 and max_position_embeddings: 77 
+DEFAULT_MAX_LEN = 300 
+CLIP_MAX_LEN = 77
 EPOCH_PATIENCE = 5
 
 # Dataset configurations
@@ -429,74 +430,16 @@ def main():
     hyper_params = {
         'BATCH_SIZE': BATCH_SIZE,
         'MAX_LEN': MAX_LEN,
-        'EPOCH_PATIENCE': args.epoch_patience
-    }
-    
-    # Set up logging and experiment tracking
-    logger = setup_local_logging(args)
-    comet_exp = setup_comet_experiment(args)
-    wandb_exp = setup_wandb_experiment(args)
-    args.logger = logger
-    args.comet_exp = comet_exp
-    args.wandb_exp = wandb_exp
-    
-    log_message(message=f"Using devices: {device_1}, {device_2}", args=args)
-    log_message(message=f"Devices: {device_1}, {device_2}", args=args)
-    
-
-    log_message(message=f'Starting log', args=args)
-    log_message(message=f'Dataset: {args.dataset}, N: {N}, Seed: {args.seed}, HF Model: {hf_model_name}, NumShots: {args.pseudo_label_shot}, PLM: {args.plm_id}', args=args)
-    
-    
-    # Load dataset
-    if args.imb_training:
-        trainingSet_1, trainingSet_2, testingSet, validationSet, auto_labeled_data = data_utils.load_imb_dataset_helper(
-            args.dataset, N, args.pseudo_label_shot, processed_dir, args.data_dir, args.use_correct_labels_only
-        )
-    else:
-        trainingSet_1, trainingSet_2, testingSet, validationSet, auto_labeled_data = data_utils.load_dataset_helper(
-            use_correct_labels_only=args.use_correct_labels_only, 
-            shots=args.pseudo_label_shot, 
-            task_name=args.dataset,
-            data_dir=args.data_dir,
-            pseudo_label_dir=args.pseudo_label_dir,
-            event=args.event,
-            lbcl=args.lbcl,
-            set_num=args.set_num
-        )    
-    
-    # If not using multiset, make both training sets the same
-    if args.single_set:
-        trainingSet_1 = pd.concat([trainingSet_1, trainingSet_2], ignore_index=True)
-        trainingSet_2 = trainingSet_1.copy()
-    
-    # Initialize tokenizer
-    if args.plm_id == "clip":
-        tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
-        #CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32", do_lower_case=False)
-    elif args.plm_id == "bert-tweet":
-        tokenizer = AutoTokenizer.from_pretrained("vinai/bertweet-base", do_lower_case=False)
-    elif "roberta-base" == args.plm_id:
-        tokenizer = RobertaTokenizer.from_pretrained('roberta-base', do_lower_case=False)
-    elif "roberta-large" == args.plm_id:
-        tokenizer = RobertaTokenizer.from_pretrained('roberta-large', do_lower_case=False)
-    elif "bert-base" == args.plm_id:
-        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
-    elif "deberta-base" == args.plm_id:
-        tokenizer = AutoTokenizer.from_pretrained('microsoft/deberta-base', do_lower_case=False)
-    else:
-        print(f"Tokenizer for {args.plm_id} not recognized. Defaulting to RoBERTa tokenizer.")
-        tokenizer = RobertaTokenizer.from_pretrained('roberta-base', do_lower_case=False)
-    
-    # tokenizer = AutoTokenizer.from_pretrained(PLM_ID_MAPPING[args.plm_id], do_lower_case=False)
+        # Set MAX_LEN based on model
+    max_len = CLIP_MAX_LEN if args.plm_id == "clip" else DEFAULT_MAX_LEN
     
     # Create dataloaders
     dataloaders = {
-        'train_dataloader_1': create_dataloader(trainingSet_1, tokenizer, args.dataset, BATCH_SIZE, MAX_LEN),
-        'train_dataloader_2': create_dataloader(trainingSet_2, tokenizer, args.dataset, BATCH_SIZE, MAX_LEN),
-        'val_dataloader': create_dataloader(validationSet, tokenizer, args.dataset, BATCH_SIZE, MAX_LEN),
-        'test_dataloader': create_dataloader(testingSet, tokenizer, args.dataset, BATCH_SIZE, MAX_LEN),
-        'auto_label_dataloader': create_dataloader(auto_labeled_data, tokenizer, args.dataset, BATCH_SIZE, MAX_LEN)
+        'train_dataloader_1': create_dataloader(trainingSet_1, tokenizer, args.dataset, BATCH_SIZE, max_len),
+        'train_dataloader_2': create_dataloader(trainingSet_2, tokenizer, args.dataset, BATCH_SIZE, max_len),
+        'val_dataloader': create_dataloader(validationSet, tokenizer, args.dataset, BATCH_SIZE, max_len),
+        'test_dataloader': create_dataloader(testingSet, tokenizer, args.dataset, BATCH_SIZE, max_len),
+        'auto_label_dataloader': create_dataloader(auto_labeled_data, tokenizer, args.dataset, BATCH_SIZE, max_len)
     }
     
     # Training parameters
@@ -520,7 +463,7 @@ def main():
         dataloaders=dataloaders,
         training_params=training_params,
         optimizer_params=optimizer_params,
-        hyper_params=hyper_params,
+        hyper_params={'BATCH_SIZE': BATCH_SIZE, 'MAX_LEN': max_len, 'EPOCH_PATIENCE': args.epoch_patience},
         devices=(device_1, device_2),
         models=(model_1, model_2),
         auto_labeled_data=auto_labeled_data,
@@ -534,7 +477,7 @@ def main():
     
     
     # Add init_df to dataloaders
-    dataloaders['init_df_dataloader'] = create_dataloader(init_df, tokenizer, args.dataset, BATCH_SIZE, MAX_LEN)
+    dataloaders['init_df_dataloader'] = create_dataloader(init_df, tokenizer, args.dataset, BATCH_SIZE, max_len)
     
     # Co-training
     log_message(message='Starting co-training', args=args)
@@ -544,7 +487,7 @@ def main():
         dataloaders=dataloaders,
         training_params=training_params,
         optimizer_params=optimizer_params,
-        hyper_params=hyper_params,
+        hyper_params={'BATCH_SIZE': BATCH_SIZE, 'MAX_LEN': max_len, 'EPOCH_PATIENCE': args.epoch_patience},
         devices=[device_1, device_2],
         init_df=init_df,
         # metric_combination='cv'
