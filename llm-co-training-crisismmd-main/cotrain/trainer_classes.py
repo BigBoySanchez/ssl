@@ -92,12 +92,12 @@ class WeightGenerator:
     def _update_models(self, i: int, total_batches: int):
         """Update models based on accumulation steps."""
         if (i + 1) % self.training_params['accumulation_steps'] == 0 or (i + 1) == total_batches:
-            torch.nn.utils.clip_grad_norm_(self.model_1.parameters(), 1)
+            torch.nn.utils.clip_grad_norm_(self.model_1.parameters(), self.training_params.get('max_grad_norm', 1.0))
             self.optimizer_1.step()
             self.lr_scheduler_1.step()
             self.optimizer_1.zero_grad()
 
-            torch.nn.utils.clip_grad_norm_(self.model_2.parameters(), 1)
+            torch.nn.utils.clip_grad_norm_(self.model_2.parameters(), self.training_params.get('max_grad_norm', 1.0))
             self.optimizer_2.step()
             self.lr_scheduler_2.step()
             self.optimizer_2.zero_grad()
@@ -380,7 +380,7 @@ class CoTrainer:
             # Backward pass and optimization
             if (i + 1) % accumulation_steps == 0 or (i + 1) == len(self.dataloaders['init_df_dataloader']):
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), self.training_params.get('max_grad_norm', 1.0))
                 optimizer.step()
                 optimizer.zero_grad()
             
@@ -653,7 +653,7 @@ class DualModelTrainer:
 
     def _update_model(self, model, optimizer, lr_scheduler):
         """Update model parameters with gradient clipping."""
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), self.training_params.get('max_grad_norm', 1.0))
         optimizer.step()
         lr_scheduler.step()
         optimizer.zero_grad()

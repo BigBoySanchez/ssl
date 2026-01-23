@@ -26,8 +26,14 @@ def run_single_set(args, set_num):
         "--set_num", str(set_num),
         "--lr", str(args.lr),
         "--num_epochs", str(args.num_epochs),
-        "--epoch_patience", str(args.epoch_patience)
+        "--epoch_patience", str(args.epoch_patience),
+        "--weight_decay", str(args.weight_decay),
+        "--max_grad_norm", str(args.max_grad_norm),
+        "--batch_size", str(args.batch_size)
     ]
+
+    if args.accumulation_steps:
+        cmd.extend(["--accumulation_steps", str(args.accumulation_steps)])
     
     if args.setup_local_logging:
         cmd.insert(2, "--setup_local_logging")
@@ -87,6 +93,10 @@ def main():
     parser.add_argument("--lr", type=float, required=True, help="Learning rate")
     parser.add_argument("--num_epochs", type=int, required=True, help="Number of epochs")
     parser.add_argument("--epoch_patience", type=int, required=True, help="Epoch patience")
+    parser.add_argument("--weight_decay", type=float, required=True, help="Weight decay")
+    parser.add_argument("--max_grad_norm", type=float, required=True, help="Max gradient norm")
+    parser.add_argument("--batch_size", type=int, required=True, help="Batch size")
+    parser.add_argument("--accumulation_steps", type=int, default=None, help="Accumulation steps")
     
     args = parser.parse_args()
     
@@ -107,7 +117,11 @@ def main():
             "cuda_devices": args.cuda_devices,
             "lr": args.lr,
             "num_epochs": args.num_epochs,
-            "epoch_patience": args.epoch_patience
+            "epoch_patience": args.epoch_patience,
+            "weight_decay": args.weight_decay,
+            "max_grad_norm": args.max_grad_norm,
+            "batch_size": args.batch_size,
+            "accumulation_steps": args.accumulation_steps
         }
     )
     

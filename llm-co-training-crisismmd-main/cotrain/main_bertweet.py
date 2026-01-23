@@ -152,8 +152,8 @@ def setup_optimization(model_1, model_2, dataloaders, training_params, criterion
     train_dataloader_1 = dataloaders['train_dataloader_1']
     train_dataloader_2 = dataloaders['train_dataloader_2']
     
-    optimizer_1 = torch.optim.AdamW(model_1.parameters(), lr=learning_rate, weight_decay=0.01)
-    optimizer_2 = torch.optim.AdamW(model_2.parameters(), lr=learning_rate, weight_decay=0.01)
+    optimizer_1 = torch.optim.AdamW(model_1.parameters(), lr=learning_rate, weight_decay=training_params.get('weight_decay', 0.01))
+    optimizer_2 = torch.optim.AdamW(model_2.parameters(), lr=learning_rate, weight_decay=training_params.get('weight_decay', 0.01))
     
     num_training_steps_1 = num_epochs * len(train_dataloader_1)
     num_training_steps_2 = num_epochs * len(train_dataloader_2)
@@ -207,7 +207,7 @@ def calculate_ece(y_true, y_pred, confidences, n_bins=10):
             bin_acc = np.mean(np.array(y_pred)[bin_mask] == np.array(y_true)[bin_mask])
             bin_conf = np.mean(np.array(confidences)[bin_mask])
             ece += (np.sum(bin_mask) / len(y_true)) * abs(bin_acc - bin_conf)
-    return ece * 100  # as percentage
+    return ece
 
 def evaluate_models(model_1, model_2, eval_dataloader, device_1, device_2):
     """Evaluate ensembled models on provided dataloader."""
@@ -283,6 +283,10 @@ def parse_arguments():
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate for training")
     parser.add_argument("--num_epochs", type=int, default=10, help="Number of epochs for training")
     parser.add_argument("--epoch_patience", type=int, default=5, help="Patience for early stopping")
+    parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay")
+    parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Max gradient norm")
+    parser.add_argument("--batch_size", type=int, default=None, help="Batch size (overrides default)")
+    parser.add_argument("--accumulation_steps", type=int, default=None, help="Accumulation steps (overrides default)")
     args = parser.parse_args()
     
     #args.pseudo_label_shot = few_shot_samples_per_class[args.dataset] if args.few_shot else 0
@@ -362,7 +366,12 @@ def setup_wandb_experiment(args):
             "seed": args.seed,
             "event": args.event,
             "lbcl": args.lbcl,
-            "set_num": args.set_num
+            "lbcl": args.lbcl,
+            "set_num": args.set_num,
+            "weight_decay": args.weight_decay,
+            "max_grad_norm": args.max_grad_norm,
+            "batch_size": args.batch_size,
+            "accumulation_steps": args.accumulation_steps
         }
     )
     return wandb
@@ -410,7 +419,10 @@ def main():
         os.makedirs(saved_model_dir, exist_ok=True)
     
     # Set batch size based on dataset and args.plm_id
-    BATCH_SIZE = get_batch_size(args.dataset, args.plm_id)
+    if args.batch_size is not None:
+        BATCH_SIZE = args.batch_size
+    else:
+        BATCH_SIZE = get_batch_size(args.dataset, args.plm_id)
     
     
     # Set up hyperparameters
@@ -491,7 +503,9 @@ def main():
     training_params = {
         'num_epochs': args.num_epochs,
         'learning_rate': args.lr,
-        'accumulation_steps': int(64 / BATCH_SIZE)
+        'accumulation_steps': args.accumulation_steps if args.accumulation_steps is not None else int(64 / BATCH_SIZE),
+        'weight_decay': args.weight_decay,
+        'max_grad_norm': args.max_grad_norm
     }
     
     # Initialize models and Set up optimizers and criterion for initial weight generation

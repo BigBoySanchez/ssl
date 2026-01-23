@@ -7,7 +7,7 @@ This generator follows the sweep specification in cotrain_notes.md:
 
 - Sweep: lr, num_epochs, epoch_patience
 - Fixed (but tracked): dataset, hf_model_id_short, plm_id, metric_combination,
-  seed, pseudo_label_dir, event, lbcl, set_num, data_dir, cuda_devices
+  seed, pseudo_label_dir, event, lbcl, data_dir, cuda_devices
 - Runs a wrapper script (default: run_sweep_wrapper.py)
 
 IMPORTANT:
@@ -33,7 +33,6 @@ def _parse_args() -> argparse.Namespace:
     # Required per the notes
     p.add_argument("--event", type=str, required=True, help="Event name")
     p.add_argument("--lbcl", type=str, required=True, help="Labeled count per class")
-    p.add_argument("--set_num", type=str, required=True, help="Set number")
 
     # Output
     p.add_argument(
@@ -59,7 +58,12 @@ def _parse_args() -> argparse.Namespace:
         default="N/A",
         help="Short HF model id (default: N/A)",
     )
-    p.add_argument("--plm_id", type=str, default="roberta-base", help="Backbone PLM id")
+    p.add_argument(
+        "--plm_id",
+        nargs='+',
+        default=["clip", "bert-tweet", "roberta-base", "bert-base", "deberta-base", "roberta-large"],
+        help="Backbone PLM id(s)"
+    )
     p.add_argument(
         "--metric_combination",
         type=str,
@@ -114,6 +118,18 @@ def _parse_args() -> argparse.Namespace:
         choices=["maximize", "minimize"],
         help="Metric goal (default: maximize)",
     )
+    p.add_argument(
+        "--accumulation_steps_min",
+        type=int,
+        default=1,
+        help="Min accumulation steps (default: 1)",
+    )
+    p.add_argument(
+        "--accumulation_steps_max",
+        type=int,
+        default=4,
+        help="Max accumulation steps (default: 4)",
+    )
 
     return p.parse_args()
 
@@ -123,10 +139,9 @@ def generate_sweep_yaml(
     program: str,
     event: str,
     lbcl: str,
-    set_num: str,
     dataset: str,
     hf_model_id_short: str,
-    plm_id: str,
+    plm_id: List[str],
     metric_combination: str,
     setup_local_logging: bool,
     seed: int,
@@ -136,28 +151,39 @@ def generate_sweep_yaml(
     method: str,
     metric_name: str,
     metric_goal: str,
+    accumulation_steps_min: int,
+    accumulation_steps_max: int,
 ) -> Dict[str, Any]:
     """Build a W&B sweep configuration dict."""
 
     # Tunable hyperparameters (the ones marked with '?' in the notes)
     parameters: Dict[str, Any] = {
-        "lr": {"values": [1e-5, 5e-5, 1e-4, 5e-4, 1e-3]},
-        "num_epochs": {"values": [5, 10, 15, 20]},
-        "epoch_patience": {"values": [3, 5, 7, 10]},
+        "lr": {"distribution": "log_uniform_values", "min": 1e-5, "max": 1e-3},
+        "num_epochs": {"distribution": "int_uniform", "min": 5, "max": 20},
+        "epoch_patience": {"distribution": "int_uniform", "min": 3, "max": 10},
+        "weight_decay": {"distribution": "log_uniform_values", "min": 1e-5, "max": 1e-2},
+        "max_grad_norm": {"distribution": "uniform", "min": 1, "max": 10},
+        "batch_size": {"distribution": "int_uniform", "min": 8, "max": 64},
+        "accumulation_steps": {"distribution": "int_uniform", "min": accumulation_steps_min, "max": accumulation_steps_max},
+    }
 
-        # Fixed parameters that should still be tracked (and passed) via `${args}`
+    if len(plm_id) > 1:
+        parameters["plm_id"] = {"values": plm_id}
+    else:
+        parameters["plm_id"] = {"value": plm_id[0]}
+
+    # Fixed parameters that should still be tracked (and passed) via `${args}`
+    parameters.update({
         "dataset": {"value": dataset},
         "hf_model_id_short": {"value": hf_model_id_short},
-        "plm_id": {"value": plm_id},
         "metric_combination": {"value": metric_combination},
         "seed": {"value": seed},
         "pseudo_label_dir": {"value": pseudo_label_dir},
         "event": {"value": event},
         "lbcl": {"value": lbcl},
-        "set_num": {"value": set_num},
         "data_dir": {"value": data_dir},
         "cuda_devices": {"value": cuda_devices},
-    }
+    })
 
     # Critical fix:
     # Use `${args}` so W&B reliably passes *all* parameters/values.
@@ -183,7 +209,6 @@ def main() -> None:
         program=args.program,
         event=args.event,
         lbcl=args.lbcl,
-        set_num=args.set_num,
         dataset=args.dataset,
         hf_model_id_short=args.hf_model_id_short,
         plm_id=args.plm_id,
@@ -196,6 +221,8 @@ def main() -> None:
         method=args.method,
         metric_name=args.metric_name,
         metric_goal=args.metric_goal,
+        accumulation_steps_min=args.accumulation_steps_min,
+        accumulation_steps_max=args.accumulation_steps_max,
     )
 
     with open(args.output, "w", encoding="utf-8") as f:
@@ -207,3 +234,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# python generate_sweep.py --event <event> --lbcl <lbcl> --output <event_lbcl_sweep.yaml> --no_setup_local_logging --cuda_devices <cuda_devices> --method <method> --metric_name <metric_name>
