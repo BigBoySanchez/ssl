@@ -70,7 +70,8 @@ launch_agent() {
 
     # Pass device list with extra quotes to satisfy Docker CLI parser for lists
     # e.g., --gpus '"device=0,1"'
-    docker run -d --gpus "device=${gpu_ids}" \
+    # Use NVIDIA_VISIBLE_DEVICES for robust GPU selection (avoids quoting hell)
+    docker run -d --gpus all -e NVIDIA_VISIBLE_DEVICES="${gpu_ids}" \
       -v ${DATA_MOUNT} \
       -v ${ARTIFACT_MOUNT} \
       --name "${cname}" \
