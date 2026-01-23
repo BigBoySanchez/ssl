@@ -8,6 +8,7 @@ import argparse
 import re
 import numpy as np
 import wandb
+import os
 
 def run_single_set(args, set_num):
     """Run the main script for a single set and return the metrics."""
@@ -29,7 +30,8 @@ def run_single_set(args, set_num):
         "--epoch_patience", str(args.epoch_patience),
         "--weight_decay", str(args.weight_decay),
         "--max_grad_norm", str(args.max_grad_norm),
-        "--batch_size", str(args.batch_size)
+        "--batch_size", str(args.batch_size),
+        "--use_wandb"
     ]
 
     if args.accumulation_steps:
@@ -38,6 +40,16 @@ def run_single_set(args, set_num):
     if args.setup_local_logging:
         cmd.insert(2, "--setup_local_logging")
     
+    # Prepare a clean environment
+    env = os.environ.copy()
+    
+    # Remove WANDB environment variables that might conflict
+    # We want the child to start a FRESH run, not inherit the parent's state
+    wandb_keys = [key for key in env.keys() if key.startswith("WANDB_")]
+    for key in wandb_keys:
+        if key not in ["WANDB_API_KEY", "WANDB_BASE_URL", "WANDB_ENTITY", "WANDB_PROJECT", "WANDB_USERNAME"]:
+             del env[key]
+
     # Use Popen to stream output
     process = subprocess.Popen(
         cmd, 
@@ -45,7 +57,8 @@ def run_single_set(args, set_num):
         stderr=subprocess.STDOUT, 
         text=True, 
         bufsize=1, 
-        universal_newlines=True
+        universal_newlines=True,
+        env=env
     )
     
     full_output = []
