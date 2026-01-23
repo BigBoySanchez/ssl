@@ -13,7 +13,7 @@ import os
 def run_single_set(args, set_num):
     """Run the main script for a single set and return the metrics."""
     cmd = [
-        "python", "main_bertweet.py",
+        "python", "-u", "main_bertweet.py",
         "--dataset", args.dataset,
         "--hf_model_id_short", args.hf_model_id_short,
         "--plm_id", args.plm_id,
@@ -38,10 +38,11 @@ def run_single_set(args, set_num):
         cmd.extend(["--accumulation_steps", str(args.accumulation_steps)])
     
     if args.setup_local_logging:
-        cmd.insert(2, "--setup_local_logging")
+        cmd.insert(3, "--setup_local_logging")
     
     # Prepare a clean environment
     env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
     
     # Remove WANDB environment variables that might conflict
     # We want the child to start a FRESH run, not inherit the parent's state
