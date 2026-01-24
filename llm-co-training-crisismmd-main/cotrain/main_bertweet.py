@@ -493,13 +493,20 @@ def main():
     )
     init_df = generator.generate_weights()
     
+    # Add init_df to dataloaders
+    dataloaders['init_df_dataloader'] = create_dataloader(init_df, tokenizer, args.dataset, BATCH_SIZE, max_len)
+
+    # Cleanup WeightGenerator and initial models to free memory
+    del generator
+    del model_1
+    del model_2
+    del optimizer_params
+    gc.collect()
+    torch.cuda.empty_cache()
+    
     # Re-initialize models for co-training and Set up optimizers with SmoothCrossEntropyLoss for co-training
     model_1, model_2 = initialize_models(NUM_CLASSES[args.dataset], args)
     optimizer_params = setup_optimization(model_1, model_2, dataloaders, training_params, criterion_class=SmoothCrossEntropyLoss)
-    
-    
-    # Add init_df to dataloaders
-    dataloaders['init_df_dataloader'] = create_dataloader(init_df, tokenizer, args.dataset, BATCH_SIZE, max_len)
     
     # Co-training
     log_message(message='Starting co-training', args=args)
