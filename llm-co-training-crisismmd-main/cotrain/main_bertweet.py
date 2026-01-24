@@ -34,6 +34,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import wandb
+# Set WandB local directory to /tmp to prevent workspace clutter
+os.environ['WANDB_DIR'] = '/tmp'
 
 # Local imports
 # sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -357,7 +359,6 @@ def setup_wandb_experiment(args):
     
     wandb.init(
         project="cotrain-hyperparameter-tuning",
-        mode="offline",
         name=f"{args.dataset}_{args.saved_model_name_suffix}",
         config={
             "lr": args.lr,

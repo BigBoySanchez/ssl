@@ -103,7 +103,7 @@ class WeightGenerator:
             self.optimizer_2.zero_grad()
             
     def _parallel_inference(self, batch):
-        """Run model inference in parallel."""
+        """Run model inference. Use sequential execution if on same device to save memory."""
         input_ids = batch['input_ids'].to(self.device_1)
         attention_mask = batch['attention_mask'].to(self.device_1)
         labels = batch['labels'].to(self.device_1)
@@ -111,24 +111,49 @@ class WeightGenerator:
         
         outputs_1, outputs_2 = None, None
 
-        def run_model_1():
-            nonlocal outputs_1
-            outputs_1 = self.model_1(input_ids=input_ids, attention_mask=attention_mask)
+        # Check if we are on the same device (e.g. single GPU)
+        # If so, run sequentially to avoid OOM (double memory usage)
+        if self.device_1 == self.device_2:
+            try:
+                outputs_1 = self.model_1(input_ids=input_ids, attention_mask=attention_mask)
+                outputs_2 = self.model_2(
+                    input_ids=input_ids.to(self.device_2),
+                    attention_mask=attention_mask.to(self.device_2)
+                )
+            except RuntimeError as e:
+                # If OOM happens even sequentially, re-raise with context
+                if "out of memory" in str(e):
+                    print(f"OOM during sequential inference on {self.device_1}")
+                raise e
+        else:
+            # Different devices (multi-GPU), run in parallel threads
+            def run_model_1():
+                nonlocal outputs_1
+                try:
+                    outputs_1 = self.model_1(input_ids=input_ids, attention_mask=attention_mask)
+                except Exception as e:
+                    print(f"Error in model 1 thread: {e}")
 
-        def run_model_2():
-            nonlocal outputs_2
-            outputs_2 = self.model_2(
-                input_ids=input_ids.to(self.device_2),
-                attention_mask=attention_mask.to(self.device_2)
-            )
+            def run_model_2():
+                nonlocal outputs_2
+                try:
+                    outputs_2 = self.model_2(
+                        input_ids=input_ids.to(self.device_2),
+                        attention_mask=attention_mask.to(self.device_2)
+                    )
+                except Exception as e:
+                    print(f"Error in model 2 thread: {e}")
 
-        t1 = threading.Thread(target=run_model_1)
-        t2 = threading.Thread(target=run_model_2)
-        t1.start()
-        t2.start()
-        t1.join()
-        t2.join()
+            t1 = threading.Thread(target=run_model_1)
+            t2 = threading.Thread(target=run_model_2)
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
         
+        if outputs_1 is None or outputs_2 is None:
+            raise RuntimeError("Model inference failed (outputs are None). potentially due to OOM in thread or improper execution.")
+
         return outputs_1, outputs_2, labels, ids
         
     def _store_probabilities(self, outputs_1, outputs_2, labels, ids, epoch: int):
