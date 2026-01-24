@@ -69,7 +69,7 @@ launch_agent() {
     # Live Run
     docker run -d --gpus "device=${gpu_id}" \
       -v ${HOME_SSL_MOUNT} \
-      -e WANDB_API_KEY=${WANDB_API_KEY} \
+      -e WANDB_API_KEY="${WANDB_API_KEY:-}" \
       --name "${cname}" \
       "${IMAGE}" \
       bash -c '
@@ -85,7 +85,7 @@ CURRENT_JOB_IDX=0
 
 for ((i=0; i<NUM_GPUS; i++)); do
   launch_agent "$i" "$CURRENT_JOB_IDX"
-  ((CURRENT_JOB_IDX++))
+  ((CURRENT_JOB_IDX+=1))
 done
 
 # ──────────────────────────────────────────────
@@ -116,7 +116,7 @@ while read -r cname; do
         
         # Launch next job
         launch_agent "$worker_idx" "$CURRENT_JOB_IDX"
-        ((CURRENT_JOB_IDX++))
+        ((CURRENT_JOB_IDX+=1))
     else
         echo "⚠️ Could not map ${cname} to a worker index. Ignoring."
     fi
