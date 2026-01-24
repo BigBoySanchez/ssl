@@ -118,18 +118,7 @@ def _parse_args() -> argparse.Namespace:
         choices=["maximize", "minimize"],
         help="Metric goal (default: maximize)",
     )
-    p.add_argument(
-        "--accumulation_steps_min",
-        type=int,
-        default=1,
-        help="Min accumulation steps (default: 1)",
-    )
-    p.add_argument(
-        "--accumulation_steps_max",
-        type=int,
-        default=4,
-        help="Max accumulation steps (default: 4)",
-    )
+
 
     return p.parse_args()
 
@@ -151,8 +140,7 @@ def generate_sweep_yaml(
     method: str,
     metric_name: str,
     metric_goal: str,
-    accumulation_steps_min: int,
-    accumulation_steps_max: int,
+
 ) -> Dict[str, Any]:
     """Build a W&B sweep configuration dict."""
 
@@ -164,7 +152,7 @@ def generate_sweep_yaml(
         "weight_decay": {"distribution": "log_uniform_values", "min": 1e-5, "max": 1e-2},
         "max_grad_norm": {"distribution": "uniform", "min": 1, "max": 10},
         "batch_size": {"distribution": "int_uniform", "min": 8, "max": 64},
-        "accumulation_steps": {"distribution": "int_uniform", "min": accumulation_steps_min, "max": accumulation_steps_max},
+
     }
 
     if len(plm_id) > 1:
@@ -221,8 +209,7 @@ def main() -> None:
         method=args.method,
         metric_name=args.metric_name,
         metric_goal=args.metric_goal,
-        accumulation_steps_min=args.accumulation_steps_min,
-        accumulation_steps_max=args.accumulation_steps_max,
+
     )
 
     with open(args.output, "w", encoding="utf-8") as f:

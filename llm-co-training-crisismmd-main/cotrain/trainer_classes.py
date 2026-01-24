@@ -10,7 +10,6 @@ import pandas as pd
 import torch
 from sklearn.metrics import f1_score
 from sklearn.preprocessing import MinMaxScaler
-from torch.cuda.amp import autocast, GradScaler
 
 #local imports
 from utils import *
@@ -43,9 +42,6 @@ class WeightGenerator:
         self.lr_scheduler_1 = self.optimizer_params['lr_scheduler_1']
         self.lr_scheduler_2 = self.optimizer_params['lr_scheduler_2']
         self.criterion = self.optimizer_params['criterion']
-        
-        self.scaler_1 = GradScaler()
-        self.scaler_2 = GradScaler()
         
     def _setup_tracking(self):
         """Initialize data structures for tracking probabilities."""
@@ -81,34 +77,28 @@ class WeightGenerator:
         """Train both models on a batch of data."""
         # Model 1 training
         batch_1 = {k: v.to(self.device_1) for k, v in batch_1.items()}
-        with autocast():
-            outputs_1 = self.model_1(input_ids=batch_1['input_ids'], attention_mask=batch_1['attention_mask'])
-            loss_1 = torch.mean(self.criterion(outputs_1, batch_1['labels'])) / self.training_params['accumulation_steps']
-        self.scaler_1.scale(loss_1).backward()
+        outputs_1 = self.model_1(input_ids=batch_1['input_ids'], attention_mask=batch_1['attention_mask'])
+        loss_1 = torch.mean(self.criterion(outputs_1, batch_1['labels'])) / self.training_params['accumulation_steps']
+        loss_1.backward()
 
         # Model 2 training
         batch_2 = {k: v.to(self.device_2) for k, v in batch_2.items()}
-        with autocast():
-            outputs_2 = self.model_2(input_ids=batch_2['input_ids'], attention_mask=batch_2['attention_mask'])
-            loss_2 = torch.mean(self.criterion(outputs_2, batch_2['labels'])) / self.training_params['accumulation_steps']
-        self.scaler_2.scale(loss_2).backward()
+        outputs_2 = self.model_2(input_ids=batch_2['input_ids'], attention_mask=batch_2['attention_mask'])
+        loss_2 = torch.mean(self.criterion(outputs_2, batch_2['labels'])) / self.training_params['accumulation_steps']
+        loss_2.backward()
         
         return outputs_1, outputs_2
         
     def _update_models(self, i: int, total_batches: int):
         """Update models based on accumulation steps."""
         if (i + 1) % self.training_params['accumulation_steps'] == 0 or (i + 1) == total_batches:
-            self.scaler_1.unscale_(self.optimizer_1)
             torch.nn.utils.clip_grad_norm_(self.model_1.parameters(), self.training_params.get('max_grad_norm', 1.0))
-            self.scaler_1.step(self.optimizer_1)
-            self.scaler_1.update()
+            self.optimizer_1.step()
             self.lr_scheduler_1.step()
             self.optimizer_1.zero_grad()
 
-            self.scaler_2.unscale_(self.optimizer_2)
             torch.nn.utils.clip_grad_norm_(self.model_2.parameters(), self.training_params.get('max_grad_norm', 1.0))
-            self.scaler_2.step(self.optimizer_2)
-            self.scaler_2.update()
+            self.optimizer_2.step()
             self.lr_scheduler_2.step()
             self.optimizer_2.zero_grad()
             
@@ -333,8 +323,6 @@ class CoTrainer:
         self.weights_updated = threading.Event()
         
         self._initialize_models()
-        self.scaler_1 = GradScaler()
-        self.scaler_2 = GradScaler()
         self._initialize_training_state()
         
     def _initialize_models(self):
@@ -373,9 +361,6 @@ class CoTrainer:
         # Thread-safe storage for batch results
         self.batch_results_1 = []
         self.batch_results_2 = []
-        
-        # Error tracking across threads
-        self.training_error = None
     
     @staticmethod
     def _create_id_to_index_mapping(df) -> Dict:
@@ -393,101 +378,54 @@ class CoTrainer:
     
     def _train_model(self, model, device, optimizer, is_model_1: bool):
         """Training function for each model (runs in separate thread)."""
-        try:
-            model.train()
-            criterion = self.optimizer_params['criterion']
-            accumulation_steps = self.training_params['accumulation_steps']
+        model.train()
+        criterion = self.optimizer_params['criterion']
+        accumulation_steps = self.training_params['accumulation_steps']
+        
+        for i, batch in enumerate(self.dataloaders['init_df_dataloader']):
+            # Prepare batch for current model
+            current_batch = {k: v.to(device) for k, v in batch.items()}
             
-            for i, batch in enumerate(self.dataloaders['init_df_dataloader']):
-                # Check for error in other thread
-                if self.training_error:
-                    return
-
-                # Prepare batch for current model
-                current_batch = {k: v.to(device) for k, v in batch.items()}
-                
-                # Get rows and weights for current batch
-                ids = batch['id'].cpu().tolist()
-                rows = [self.id2index_init_df[guid] for guid in ids]
-                
-                with self.lock:
-                    weights = torch.tensor(
-                        self.train_weights_1[rows] if is_model_1 else self.train_weights_2[rows], 
-                        dtype=torch.double
-                    ).to(device)
-                
-                # Forward pass
-                with autocast():
-                    outputs = self._forward_pass(model, current_batch)
-                    # Compute loss
-                    loss = self._compute_loss(criterion, outputs, current_batch['labels'], weights, accumulation_steps)
-                
-                # Backward pass and optimization
-                scaler = self.scaler_1 if is_model_1 else self.scaler_2
-                scaler.scale(loss).backward()
-                
-                if (i + 1) % accumulation_steps == 0 or (i + 1) == len(self.dataloaders['init_df_dataloader']):
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), self.training_params.get('max_grad_norm', 1.0))
-                    scaler.step(optimizer)
-                    scaler.update()
-                    optimizer.zero_grad()
-                
-                # Store results for weight updates
-                with self.lock:
-                    if is_model_1:
-                        self.batch_results_1.append({
-                            'rows': rows,
-                            'outputs': outputs.detach(),
-                            'labels': current_batch['labels'].detach()
-                        })
-                    else:
-                        self.batch_results_2.append({
-                            'rows': rows,
-                            'outputs': outputs.detach(),
-                            'labels': current_batch['labels'].detach()
-                        })
+            # Get rows and weights for current batch
+            ids = batch['id'].cpu().tolist()
+            rows = [self.id2index_init_df[guid] for guid in ids]
             
-        except Exception as e:
-            self.training_error = e
-            # Ensure we signal completion so the main thread doesn't hang waiting
-            self.epoch_complete.set()
-        finally:
-            # Signal completion if no error (or if error happened, we presumably set it above, 
-            # but setting it again is harmless or we can just ensure it's set)
-            if not self.training_error:
-                # Only wait for the other thread if we finished successfully
-                # If we crashed, we want to exit immediately, but the barrier is 'epoch_complete' which is an Event
-                # Actually, given the logic in _train_epoch, both threads run and then Wait for epoch_complete?
-                # No, _train_epoch waits for epoch_complete.
-                # But who sets epoch_complete? 
-                # Wait, the original code had `self.epoch_complete.set()` at the END of _train_model.
-                # If one thread finishes, it sets the event.
-                # If both threads are running, the first one to finish sets the event?
-                # No, that would wake up the main thread prematurely if the other isn't done?
-                # Let's look at the original code.
-                # It seems the original code intended for BOTH to finish?
-                # Actually, `self.epoch_complete` is a threading.Event.
-                # If thread1 finishes and sets it, `_train_epoch` wakes up.
-                # Then `_train_epoch` calls `_update_weights_based_on_results`.
-                # But thread2 might still be running!
-                # This seems like a bug in the ORIGINAL code if it assumes both are done.
-                # However, for now, I just want to address the hanging.
-                pass
+            with self.lock:
+                weights = torch.tensor(
+                    self.train_weights_1[rows] if is_model_1 else self.train_weights_2[rows], 
+                    dtype=torch.double
+                ).to(device)
+            
+            # Forward pass
+            outputs = self._forward_pass(model, current_batch)
+            
+            # Compute loss
+            loss = self._compute_loss(criterion, outputs, current_batch['labels'], weights, accumulation_steps)
+            
+            # Backward pass and optimization
+            if (i + 1) % accumulation_steps == 0 or (i + 1) == len(self.dataloaders['init_df_dataloader']):
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), self.training_params.get('max_grad_norm', 1.0))
+                optimizer.step()
+                optimizer.zero_grad()
+            
+            # Store results for weight updates
+            with self.lock:
+                if is_model_1:
+                    self.batch_results_1.append({
+                        'rows': rows,
+                        'outputs': outputs.detach(),
+                        'labels': current_batch['labels'].detach()
+                    })
+                else:
+                    self.batch_results_2.append({
+                        'rows': rows,
+                        'outputs': outputs.detach(),
+                        'labels': current_batch['labels'].detach()
+                    })
         
         # Signal completion
-        # Ideally we should use a Barrier for both threads, but let's stick to the pattern
-        # If we have an error, we MUST set this to unblock main thread
-        if self.training_error or (is_model_1 and not self.training_error) or (not is_model_1 and not self.training_error):
-             # Original logic: just set it. 
-             # We should probably only set it if we are the last one? 
-             # Or maybe the main thread waits for successful completion?
-             # The original code:
-             # thread1.start(); thread2.start(); self.epoch_complete.wait()
-             # This means as soon as ONE thread finishes, the main thread wakes up.
-             # This seems wrong if the other thread is slower.
-             # But I won't fix the race condition unless asked. I will fix the HANG.
-             self.epoch_complete.set()
+        self.epoch_complete.set()
     
     def _update_weights_based_on_results(self, epoch: int):
         """Update weights based on results from both models."""
@@ -575,12 +513,8 @@ class CoTrainer:
         thread1.start()
         thread2.start()
         
-        # Wait for both models to complete their epoch (or error)
+        # Wait for both models to complete their epoch
         self.epoch_complete.wait()
-        
-        # Check for Thread errors
-        if self.training_error:
-            raise self.training_error
         
         # Update weights based on both models' results
         self._update_weights_based_on_results(epoch)
@@ -724,9 +658,6 @@ class DualModelTrainer:
         self.lr_scheduler_1 = self.optimizer_params['lr_scheduler_1']
         self.lr_scheduler_2 = self.optimizer_params['lr_scheduler_2']
         self.criterion = self.optimizer_params['criterion']
-        
-        self.scaler_1 = GradScaler()
-        self.scaler_2 = GradScaler()
 
     def _initialize_training_state(self):
         """Initialize training state variables."""
@@ -745,12 +676,10 @@ class DualModelTrainer:
         """Compute and scale loss."""
         return torch.mean(self.criterion(outputs, labels)) / accumulation_steps
 
-    def _update_model(self, model, optimizer, lr_scheduler, scaler):
+    def _update_model(self, model, optimizer, lr_scheduler):
         """Update model parameters with gradient clipping."""
-        scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), self.training_params.get('max_grad_norm', 1.0))
-        scaler.step(optimizer)
-        scaler.update()
+        optimizer.step()
         lr_scheduler.step()
         optimizer.zero_grad()
 
@@ -804,20 +733,19 @@ class DualModelTrainer:
         
         for batch_idx, (batch_1, batch_2) in enumerate(zip(train_dl_1, train_dl_2)):
             # Forward pass and loss computation for both models
-            with autocast():
-                outputs_1, labels_1 = self._forward_pass(self.model_1, batch_1, self.device_1)
-                loss_1 = self._compute_loss(outputs_1, labels_1, accumulation_steps)
-            self.scaler_1.scale(loss_1).backward()
-
-            with autocast():
-                outputs_2, labels_2 = self._forward_pass(self.model_2, batch_2, self.device_2)
-                loss_2 = self._compute_loss(outputs_2, labels_2, accumulation_steps)
-            self.scaler_2.scale(loss_2).backward()
+            outputs_1, labels_1 = self._forward_pass(self.model_1, batch_1, self.device_1)
+            outputs_2, labels_2 = self._forward_pass(self.model_2, batch_2, self.device_2)
+            
+            loss_1 = self._compute_loss(outputs_1, labels_1, accumulation_steps)
+            loss_2 = self._compute_loss(outputs_2, labels_2, accumulation_steps)
+            
+            loss_1.backward()
+            loss_2.backward()
 
             # Update models if accumulation steps reached
             if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == len(train_dl_1):
-                self._update_model(self.model_1, self.optimizer_1, self.lr_scheduler_1, self.scaler_1)
-                self._update_model(self.model_2, self.optimizer_2, self.lr_scheduler_2, self.scaler_2)
+                self._update_model(self.model_1, self.optimizer_1, self.lr_scheduler_1)
+                self._update_model(self.model_2, self.optimizer_2, self.lr_scheduler_2)
 
     def train(self):
         """Main training loop."""

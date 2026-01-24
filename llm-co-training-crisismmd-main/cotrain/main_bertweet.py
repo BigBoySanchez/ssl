@@ -468,7 +468,7 @@ def main():
     training_params = {
         'num_epochs': args.num_epochs,
         'learning_rate': args.lr,
-        'accumulation_steps': args.accumulation_steps if args.accumulation_steps is not None else int(64 / BATCH_SIZE),
+        'accumulation_steps': 1,
         'weight_decay': args.weight_decay,
         'max_grad_norm': args.max_grad_norm
     }

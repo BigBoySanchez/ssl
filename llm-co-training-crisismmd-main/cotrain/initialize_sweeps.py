@@ -47,8 +47,7 @@ FIXED_PARAMS = {
     "method": "bayes",
     "metric_name": "val_f1",
     "metric_goal": "maximize",
-    "accumulation_steps_min": 1,
-    "accumulation_steps_max": 4,
+
 }
 
 def main():
