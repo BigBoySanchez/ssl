@@ -78,3 +78,13 @@ sweep config:
 - [x] have main_bertweet errors propogate to the wrapper
 - [x] have main_bertweet output propogate too (if not in wandb logs already)
 - [x] add eval on dev, along with test
+
+docker run -d --gpus "device=0" \
+  -v ${HOME}/ssl:/workspace/ssl \
+  -e WANDB_API_KEY= \
+  --name "cotrain-test" \
+  "cahsi-cotrain:test" \
+  bash -c '
+    cd /workspace/ssl/llm-co-training-crisismmd-main/cotrain && \
+    wandb agent --count 1 jacoba-california-state-university-east-bay/uncategorized/v2gmt0l2
+  '
