@@ -436,6 +436,24 @@ def main():
     }
     
     # Create dataloaders
+    # Initialize tokenizer
+    if args.plm_id == "clip":
+        tokenizer = CLIPTokenizer.from_pretrained(PLM_ID_MAPPING[args.plm_id])
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(PLM_ID_MAPPING[args.plm_id])
+
+    # Load datasets
+    trainingSet_1, trainingSet_2, testingSet, validationSet, auto_labeled_data = data_utils.load_dataset_helper(
+        use_correct_labels_only=args.use_correct_labels_only,
+        shots=args.pseudo_label_shot,
+        task_name=args.dataset,
+        data_dir=data_dir,
+        pseudo_label_dir=args.pseudo_label_dir,
+        event=args.event,
+        lbcl=args.lbcl,
+        set_num=args.set_num
+    )
+    
     dataloaders = {
         'train_dataloader_1': create_dataloader(trainingSet_1, tokenizer, args.dataset, BATCH_SIZE, max_len),
         'train_dataloader_2': create_dataloader(trainingSet_2, tokenizer, args.dataset, BATCH_SIZE, max_len),
