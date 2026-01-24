@@ -408,7 +408,7 @@ def main():
     args.saved_model_name_suffix = saved_model_name_suffix
     
     # Set up directories
-    data_dir = os.path.join(ROOT, 'data')
+    data_dir = args.data_dir
     saved_model_dir = f"{ROOT}/saved_models/{args.dataset}/{args.exp_name}"
     processed_dir = f"{ROOT}/processed/{args.dataset}/{args.hf_model_id_short}"
     # save_dir = os.path.join(processed_dir, f'N_{N}')
