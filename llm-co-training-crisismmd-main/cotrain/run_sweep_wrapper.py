@@ -77,15 +77,16 @@ def run_single_set(args, set_num):
     output = "".join(full_output)
     
     # Parse the final results from output
-    # Look for the line with F1, Accuracy, ECE
-    match = re.search(r'F1: ([\d.]+), .* Accuracy: ([\d.]+), ECE: ([\d.]+)', output)
+    # Look for the line with Validation F1, Accuracy, ECE
+    # Specific to the helper: val_result_msg in main_bertweet.py
+    match = re.search(r'Validation .*F1: ([\d.]+), .*Accuracy: ([\d.]+), ECE: ([\d.]+)', output)
     if match:
         f1 = float(match.group(1))
         acc = float(match.group(2))
         ece = float(match.group(3))
         return f1, acc, ece
     else:
-        print(f"Failed to parse results for set {set_num}")
+        print(f"Failed to parse Validation results for set {set_num}")
         # print(output) # Already printed via streaming
         return None
 

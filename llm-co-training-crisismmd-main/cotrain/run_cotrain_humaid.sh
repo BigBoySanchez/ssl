@@ -1,100 +1,86 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-EVENT_NAMES=(
-  california_wildfires_2018
-  canada_wildfires_2016    
-  cyclone_idai_2019        
-  hurricane_dorian_2019    
-  hurricane_florence_2018  
-  hurricane_harvey_2017    
-  hurricane_irma_2017
-  hurricane_maria_2017
-  kaikoura_earthquake_2016
-  kerala_floods_2018 
+# ──────────────────────────────────────────────
+# CONFIG
+# ──────────────────────────────────────────────
+ENTITY="jacoba-california-state-university-east-bay"
+PROJECT="lg-cotrain-humaid"
+IMAGE="cahsi-cotrain:test"
+SWEEP_ID_FILE="sweep_ids.txt"
+
+# Configurable GPU list
+declare -a GPUS=(
+  "0"
+  "1"
+  "2"
 )
+NUM_GPUS=${#GPUS[@]}
 
-LBCL_VALUES=(
-  5
-  10
-  25
-  50
-)
+# ──────────────────────────────────────────────
+# DATA & PATHS
+# ──────────────────────────────────────────────
+# User requested specific mounts
+HOME_SSL_MOUNT="${HOME}/ssl:/workspace/ssl"
 
-mkdir -p logs
+# ──────────────────────────────────────────────
+# LOAD SWEEPS
+# ──────────────────────────────────────────────
+if [[ ! -f "$SWEEP_ID_FILE" ]]; then
+  echo "❌ Missing $SWEEP_ID_FILE. Run initialize_sweeps.py first."
+  exit 1
+fi
+mapfile -t SWEEP_IDS < "$SWEEP_ID_FILE"
+TOTAL_SWEEPS=${#SWEEP_IDS[@]}
 
+if (( TOTAL_SWEEPS == 0 )); then
+  echo "❌ No sweep IDs found."
+  exit 1
+fi
 
-# Flatten tasks into an array
-TASKS=()
-for event_name in "${EVENT_NAMES[@]}"; do
-  for lbcl in "${LBCL_VALUES[@]}"; do
-    TASKS+=("$event_name $lbcl")
-  done
-done
+echo "📋 Loaded $TOTAL_SWEEPS sweeps"
+echo "🧠 Starting $NUM_GPUS GPU agents"
+echo "───────────────────────────────────────────────"
 
-# GPU Management
-GPU_PAIRS=("0,1" "2,3" "4,5")
-SLOT_PIDS=(0 0 0) # Store PIDs for each slot (0 means free)
-
-echo "Total tasks: ${#TASKS[@]}"
-
-# Process loop
-IDX=0
-NUM_TASKS=${#TASKS[@]}
-
-while [ $IDX -lt $NUM_TASKS ]; do
-  LAUNCHED=false
-  
-  for i in "${!GPU_PAIRS[@]}"; do
-    PID=${SLOT_PIDS[$i]}
+# ──────────────────────────────────────────────
+# FUNCTION TO LAUNCH AN AGENT CONTAINER
+# ──────────────────────────────────────────────
+launch_agent() {
+    local gpu_idx=$1
+    local gpu_id=${GPUS[$gpu_idx]}
     
-    # Check if slot is free (PID=0 or process dead)
-    if [ "$PID" -eq 0 ] || ! kill -0 "$PID" 2>/dev/null; then
-      # Slot is free, launch next task
-      
-      # Parse task
-      TASK="${TASKS[$IDX]}"
-      read -r event_name lbcl <<< "$TASK"
-      
-      DEVICE=${GPU_PAIRS[$i]}
-      LOG_FILE="logs/${event_name}_${lbcl}.log"
-      
-      echo "[Task $((IDX+1))/$NUM_TASKS] Starting $event_name (lbcl=$lbcl) on GPUs $DEVICE. Log: $LOG_FILE"
-      
-      python main_bertweet.py \
-        --dataset humaid \
-        --hf_model_id_short N/A \
-        --plm_id roberta-base \
-        --metric_combination cv \
-        --setup_local_logging \
-        --seed 1234 \
-        --pseudo_label_dir anh_4o \
-        --event "$event_name" \
-        --lbcl "${lbcl}" \
-        --set_num 1 \
-        --data_dir ../../data \
-        --cuda_devices="$DEVICE" \
-        > "$LOG_FILE" 2>&1 &
-      
-      # Save PID
-      SLOT_PIDS[$i]=$!
-      
-      IDX=$((IDX+1))
-      LAUNCHED=true
-      
-      # Break if we've scheduled the last task
-      if [ $IDX -ge $NUM_TASKS ]; then break; fi
+    # Assign sweep ID round-robin
+    local sweep_idx=$(( gpu_idx % TOTAL_SWEEPS ))
+    local sweep_id=${SWEEP_IDS[$sweep_idx]}
+    
+    local cname="cotrain-test-${gpu_id}"
+
+    echo "🚀 Preparing Worker for GPU ${gpu_id} → Sweep ${sweep_id}"
+    
+    # Check if WANDB_API_KEY is set
+    if [[ -z "${WANDB_API_KEY:-}" ]]; then
+        echo "⚠️  WANDB_API_KEY is not set! The container will likely fail."
     fi
-  done
-  
-  # If no task was launched in this pass (all slots busy), wait a bit
-  if [ "$LAUNCHED" = false ]; then
-    sleep 5
-  else
-    # Small sleep even if launched, to avoid race conditions or hammering
-    sleep 1
-  fi
+
+    # Dry Run: Echo commands instead of running
+    echo "  [DRY RUN] docker rm -f \"${cname}\""
+    echo "  [DRY RUN] docker run -d --gpus \"device=${gpu_id}\" \\"
+    echo "    -v ${HOME_SSL_MOUNT} \\"
+    echo "    -e WANDB_API_KEY=${WANDB_API_KEY:-<MISSING_KEY>} \\"
+    echo "    --name \"${cname}\" \\"
+    echo "    \"${IMAGE}\" \\"
+    echo "    bash -c '"
+    echo "      cd /workspace/ssl/llm-co-training-crisismmd-main/cotrain && \\"
+    echo "      wandb agent --count 5 ${ENTITY}/${PROJECT}/${sweep_id}"
+    echo "    '"
+}
+
+# ──────────────────────────────────────────────
+# INITIAL LAUNCH
+# ──────────────────────────────────────────────
+for ((i=0; i<NUM_GPUS; i++)); do
+  launch_agent "$i"
 done
 
-echo "All tasks scheduled. Waiting for remaining jobs..."
-wait
-echo "All done."
+# NOTE: Original event-monitoring loop removed as we are just launching agents.
+
