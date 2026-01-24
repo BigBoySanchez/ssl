@@ -93,7 +93,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--cuda_devices",
         type=str,
-        default="0,1",
+        default="0",
         help="CUDA devices (comma-separated), e.g., 0,1",
     )
 

@@ -357,6 +357,7 @@ def setup_wandb_experiment(args):
     
     wandb.init(
         project="cotrain-hyperparameter-tuning",
+        mode="offline",
         name=f"{args.dataset}_{args.saved_model_name_suffix}",
         config={
             "lr": args.lr,
