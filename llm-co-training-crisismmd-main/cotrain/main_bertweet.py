@@ -430,7 +430,7 @@ def main():
     
     # Set up hyperparameters
     # Set MAX_LEN based on model
-    max_len = CLIP_MAX_LEN if args.plm_id == "clip" else DEFAULT_MAX_LEN
+    max_len = CLIP_MAX_LEN if args.plm_id == "clip" else (130 if args.plm_id == "bert-tweet" else DEFAULT_MAX_LEN)
 
     hyper_params = {
         'BATCH_SIZE': BATCH_SIZE,
