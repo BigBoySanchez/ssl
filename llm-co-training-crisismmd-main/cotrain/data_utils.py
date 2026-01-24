@@ -158,6 +158,19 @@ def load_humaid_dataset(
     
     validationSet['label'] = validationSet['class_label'].map(label_map)
     testingSet['label'] = testingSet['class_label'].map(label_map)
+
+    print("Validation Set Columns:", validationSet.columns)
+    print(validationSet.head())
+    print("Testing Set Columns:", testingSet.columns)
+    print(testingSet.head())
+
+
+    # Filter by event
+    if event:
+        if 'event' in validationSet.columns:
+            validationSet = validationSet[validationSet['event'] == event]
+        if 'event' in testingSet.columns:
+             testingSet = testingSet[testingSet['event'] == event]
     
     # Fix labels for dev/test
     if 'label' in validationSet.columns and validationSet['label'].dtype == object:
