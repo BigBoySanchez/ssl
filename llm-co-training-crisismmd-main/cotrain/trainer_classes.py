@@ -10,6 +10,7 @@ import pandas as pd
 import torch
 from sklearn.metrics import f1_score
 from sklearn.preprocessing import MinMaxScaler
+from torch.cuda.amp import autocast, GradScaler
 
 #local imports
 from utils import *
@@ -42,6 +43,9 @@ class WeightGenerator:
         self.lr_scheduler_1 = self.optimizer_params['lr_scheduler_1']
         self.lr_scheduler_2 = self.optimizer_params['lr_scheduler_2']
         self.criterion = self.optimizer_params['criterion']
+        
+        self.scaler_1 = GradScaler()
+        self.scaler_2 = GradScaler()
         
     def _setup_tracking(self):
         """Initialize data structures for tracking probabilities."""
@@ -77,28 +81,34 @@ class WeightGenerator:
         """Train both models on a batch of data."""
         # Model 1 training
         batch_1 = {k: v.to(self.device_1) for k, v in batch_1.items()}
-        outputs_1 = self.model_1(input_ids=batch_1['input_ids'], attention_mask=batch_1['attention_mask'])
-        loss_1 = torch.mean(self.criterion(outputs_1, batch_1['labels'])) / self.training_params['accumulation_steps']
-        loss_1.backward()
+        with autocast():
+            outputs_1 = self.model_1(input_ids=batch_1['input_ids'], attention_mask=batch_1['attention_mask'])
+            loss_1 = torch.mean(self.criterion(outputs_1, batch_1['labels'])) / self.training_params['accumulation_steps']
+        self.scaler_1.scale(loss_1).backward()
 
         # Model 2 training
         batch_2 = {k: v.to(self.device_2) for k, v in batch_2.items()}
-        outputs_2 = self.model_2(input_ids=batch_2['input_ids'], attention_mask=batch_2['attention_mask'])
-        loss_2 = torch.mean(self.criterion(outputs_2, batch_2['labels'])) / self.training_params['accumulation_steps']
-        loss_2.backward()
+        with autocast():
+            outputs_2 = self.model_2(input_ids=batch_2['input_ids'], attention_mask=batch_2['attention_mask'])
+            loss_2 = torch.mean(self.criterion(outputs_2, batch_2['labels'])) / self.training_params['accumulation_steps']
+        self.scaler_2.scale(loss_2).backward()
         
         return outputs_1, outputs_2
         
     def _update_models(self, i: int, total_batches: int):
         """Update models based on accumulation steps."""
         if (i + 1) % self.training_params['accumulation_steps'] == 0 or (i + 1) == total_batches:
+            self.scaler_1.unscale_(self.optimizer_1)
             torch.nn.utils.clip_grad_norm_(self.model_1.parameters(), self.training_params.get('max_grad_norm', 1.0))
-            self.optimizer_1.step()
+            self.scaler_1.step(self.optimizer_1)
+            self.scaler_1.update()
             self.lr_scheduler_1.step()
             self.optimizer_1.zero_grad()
 
+            self.scaler_2.unscale_(self.optimizer_2)
             torch.nn.utils.clip_grad_norm_(self.model_2.parameters(), self.training_params.get('max_grad_norm', 1.0))
-            self.optimizer_2.step()
+            self.scaler_2.step(self.optimizer_2)
+            self.scaler_2.update()
             self.lr_scheduler_2.step()
             self.optimizer_2.zero_grad()
             
@@ -323,6 +333,8 @@ class CoTrainer:
         self.weights_updated = threading.Event()
         
         self._initialize_models()
+        self.scaler_1 = GradScaler()
+        self.scaler_2 = GradScaler()
         self._initialize_training_state()
         
     def _initialize_models(self):
@@ -405,16 +417,20 @@ class CoTrainer:
                     ).to(device)
                 
                 # Forward pass
-                outputs = self._forward_pass(model, current_batch)
-                
-                # Compute loss
-                loss = self._compute_loss(criterion, outputs, current_batch['labels'], weights, accumulation_steps)
+                with autocast():
+                    outputs = self._forward_pass(model, current_batch)
+                    # Compute loss
+                    loss = self._compute_loss(criterion, outputs, current_batch['labels'], weights, accumulation_steps)
                 
                 # Backward pass and optimization
+                scaler = self.scaler_1 if is_model_1 else self.scaler_2
+                scaler.scale(loss).backward()
+                
                 if (i + 1) % accumulation_steps == 0 or (i + 1) == len(self.dataloaders['init_df_dataloader']):
-                    loss.backward()
+                    scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(model.parameters(), self.training_params.get('max_grad_norm', 1.0))
-                    optimizer.step()
+                    scaler.step(optimizer)
+                    scaler.update()
                     optimizer.zero_grad()
                 
                 # Store results for weight updates
@@ -708,6 +724,9 @@ class DualModelTrainer:
         self.lr_scheduler_1 = self.optimizer_params['lr_scheduler_1']
         self.lr_scheduler_2 = self.optimizer_params['lr_scheduler_2']
         self.criterion = self.optimizer_params['criterion']
+        
+        self.scaler_1 = GradScaler()
+        self.scaler_2 = GradScaler()
 
     def _initialize_training_state(self):
         """Initialize training state variables."""
@@ -726,10 +745,12 @@ class DualModelTrainer:
         """Compute and scale loss."""
         return torch.mean(self.criterion(outputs, labels)) / accumulation_steps
 
-    def _update_model(self, model, optimizer, lr_scheduler):
+    def _update_model(self, model, optimizer, lr_scheduler, scaler):
         """Update model parameters with gradient clipping."""
+        scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), self.training_params.get('max_grad_norm', 1.0))
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
         lr_scheduler.step()
         optimizer.zero_grad()
 
@@ -783,19 +804,20 @@ class DualModelTrainer:
         
         for batch_idx, (batch_1, batch_2) in enumerate(zip(train_dl_1, train_dl_2)):
             # Forward pass and loss computation for both models
-            outputs_1, labels_1 = self._forward_pass(self.model_1, batch_1, self.device_1)
-            outputs_2, labels_2 = self._forward_pass(self.model_2, batch_2, self.device_2)
-            
-            loss_1 = self._compute_loss(outputs_1, labels_1, accumulation_steps)
-            loss_2 = self._compute_loss(outputs_2, labels_2, accumulation_steps)
-            
-            loss_1.backward()
-            loss_2.backward()
+            with autocast():
+                outputs_1, labels_1 = self._forward_pass(self.model_1, batch_1, self.device_1)
+                loss_1 = self._compute_loss(outputs_1, labels_1, accumulation_steps)
+            self.scaler_1.scale(loss_1).backward()
+
+            with autocast():
+                outputs_2, labels_2 = self._forward_pass(self.model_2, batch_2, self.device_2)
+                loss_2 = self._compute_loss(outputs_2, labels_2, accumulation_steps)
+            self.scaler_2.scale(loss_2).backward()
 
             # Update models if accumulation steps reached
             if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == len(train_dl_1):
-                self._update_model(self.model_1, self.optimizer_1, self.lr_scheduler_1)
-                self._update_model(self.model_2, self.optimizer_2, self.lr_scheduler_2)
+                self._update_model(self.model_1, self.optimizer_1, self.lr_scheduler_1, self.scaler_1)
+                self._update_model(self.model_2, self.optimizer_2, self.lr_scheduler_2, self.scaler_2)
 
     def train(self):
         """Main training loop."""
