@@ -441,6 +441,9 @@ def main():
     # Initialize tokenizer
     if args.plm_id == "clip":
         tokenizer = CLIPTokenizer.from_pretrained(PLM_ID_MAPPING[args.plm_id])
+    elif args.plm_id == "bert-tweet":
+        # BERTweet requires use_fast=False to avoid token ID mismatches with the model vocabulary
+        tokenizer = AutoTokenizer.from_pretrained(PLM_ID_MAPPING[args.plm_id], use_fast=False)
     else:
         tokenizer = AutoTokenizer.from_pretrained(PLM_ID_MAPPING[args.plm_id])
 
@@ -479,16 +482,28 @@ def main():
     # Resize embeddings to match tokenizer length
     # This prevents CUDA device-side assertions for models with unmapped tokens (e.g. BERTweet)
     def resize_embeddings(model, tokenizer_len):
+        resized = False
         if hasattr(model, 'bert'):
             model.bert.resize_token_embeddings(tokenizer_len)
+            resized = True
+            print(f"Resized model.bert embeddings to {tokenizer_len}")
         elif hasattr(model, 'transformer'):
             model.transformer.resize_token_embeddings(tokenizer_len)
+            resized = True
+            print(f"Resized model.transformer embeddings to {tokenizer_len}")
         elif hasattr(model, 'clip_model'):
             # CLIPTextModel inherits from PreTrainedModel, so it supports resize_token_embeddings
             model.clip_model.resize_token_embeddings(tokenizer_len)
+            resized = True
+            print(f"Resized model.clip_model embeddings to {tokenizer_len}")
         elif hasattr(model, 'align_model'):
              # AlignModel also inherits from PreTrainedModel
              model.align_model.resize_token_embeddings(tokenizer_len)
+             resized = True
+             print(f"Resized model.align_model embeddings to {tokenizer_len}")
+        
+        if not resized:
+            print(f"WARNING: Could not find known attribute to resize embeddings for model type {type(model)}")
         
     resize_embeddings(model_1, len(tokenizer))
     resize_embeddings(model_2, len(tokenizer))
@@ -524,6 +539,8 @@ def main():
     
     # Re-initialize models for co-training and Set up optimizers with SmoothCrossEntropyLoss for co-training
     model_1, model_2 = initialize_models(NUM_CLASSES[args.dataset], args)
+    resize_embeddings(model_1, len(tokenizer))
+    resize_embeddings(model_2, len(tokenizer))
     optimizer_params = setup_optimization(model_1, model_2, dataloaders, training_params, criterion_class=SmoothCrossEntropyLoss)
     
     # Co-training
@@ -557,6 +574,8 @@ def main():
     
     # Load co-trained models
     model_1, model_2 = initialize_models(NUM_CLASSES[args.dataset], args)
+    resize_embeddings(model_1, len(tokenizer))
+    resize_embeddings(model_2, len(tokenizer))
     model_1_path = f'{saved_model_dir}/co_trained_model_1{saved_model_name_suffix}.pt'
     model_2_path = f'{saved_model_dir}/co_trained_model_2{saved_model_name_suffix}.pt'
     
@@ -598,6 +617,8 @@ def main():
     
     # Load fine-tuned models
     model_1, model_2 = initialize_models(NUM_CLASSES[args.dataset], args)
+    resize_embeddings(model_1, len(tokenizer))
+    resize_embeddings(model_2, len(tokenizer))
     model_1_path = f'{saved_model_dir}/final_model_1{saved_model_name_suffix}.pt'
     model_2_path = f'{saved_model_dir}/final_model_2{saved_model_name_suffix}.pt'
     
