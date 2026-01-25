@@ -475,6 +475,24 @@ def main():
     
     # Initialize models and Set up optimizers and criterion for initial weight generation
     model_1, model_2 = initialize_models(NUM_CLASSES[args.dataset], args)
+
+    # Resize embeddings to match tokenizer length
+    # This prevents CUDA device-side assertions for models with unmapped tokens (e.g. BERTweet)
+    def resize_embeddings(model, tokenizer_len):
+        if hasattr(model, 'bert'):
+            model.bert.resize_token_embeddings(tokenizer_len)
+        elif hasattr(model, 'transformer'):
+            model.transformer.resize_token_embeddings(tokenizer_len)
+        elif hasattr(model, 'clip_model'):
+            # CLIPTextModel inherits from PreTrainedModel, so it supports resize_token_embeddings
+            model.clip_model.resize_token_embeddings(tokenizer_len)
+        elif hasattr(model, 'align_model'):
+             # AlignModel also inherits from PreTrainedModel
+             model.align_model.resize_token_embeddings(tokenizer_len)
+        
+    resize_embeddings(model_1, len(tokenizer))
+    resize_embeddings(model_2, len(tokenizer))
+
     optimizer_params = setup_optimization(model_1, model_2, dataloaders,training_params, criterion_class=nn.CrossEntropyLoss)
     
     
