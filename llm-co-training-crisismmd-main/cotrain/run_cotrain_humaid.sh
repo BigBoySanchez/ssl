@@ -69,7 +69,7 @@ launch_agent() {
     docker rm -f "${cname}" >/dev/null 2>&1 || true
 
     # Live Run
-    docker run -d --gpus "device=${gpu_id}" \
+    docker run -d --gpus '"device='${gpu_id}'"' \
       -v ${HOME_SSL_MOUNT} \
       -e WANDB_API_KEY="${WANDB_API_KEY:-}" \
       --name "${cname}" \
