@@ -11,9 +11,9 @@ SWEEP_ID_FILE="sweep_ids.txt"
 
 # Configurable GPU list
 declare -a GPUS=(
-  "0"
-  "1"
-  "2"
+  "0,1"
+  "2,3"
+  "4,5"
 )
 NUM_GPUS=${#GPUS[@]}
 
@@ -54,7 +54,9 @@ launch_agent() {
     local safe_sweep_idx=$(( sweep_idx % TOTAL_SWEEPS ))
     local sweep_id=${SWEEP_IDS[$safe_sweep_idx]}
     
-    local cname="cotrain-test-${gpu_id}"
+    # Remove commas for the container name (e.g. "0,1" -> "01")
+    local gpu_suffix="${gpu_id//,/}"
+    local cname="cotrain-test-${gpu_suffix}"
 
     echo "🚀 Preparing Worker for GPU ${gpu_id} → Sweep ${sweep_id} (Job ${sweep_idx})"
     
@@ -97,15 +99,20 @@ echo "📡 Watching for stopped containers..."
 docker events --filter 'event=die' --format '{{.Actor.Attributes.name}}' |
 while read -r cname; do
   if [[ $cname == cotrain-test-* ]]; then
-    # Extract GPU ID from name "cotrain-test-<GPUID>"
-    # We need to find which index in GPUS this corresponds to.
+    # Extract GPU suffix from name "cotrain-test-<SUFFIX>"
+    # e.g., "cotrain-test-01" -> "01"
     
-    stopped_gpu_id="${cname##*-}"
+    stopped_gpu_suffix="${cname##*-}"
     
     # Find the index of this GPU in our GPUS array
     worker_idx=-1
     for ((i=0; i<NUM_GPUS; i++)); do
-      if [[ "${GPUS[$i]}" == "$stopped_gpu_id" ]]; then
+      # We must compare against the sanitized version of the configured GPU ID
+      # "0,1" -> "01"
+      current_val="${GPUS[$i]}"
+      current_suffix="${current_val//,/}"
+      
+      if [[ "$current_suffix" == "$stopped_gpu_suffix" ]]; then
         worker_idx=$i
         break
       fi

@@ -156,7 +156,7 @@ def generate_sweep_yaml(
     }
 
     if len(plm_id) > 1:
-        parameters["plm_id"] = {"values": plm_id}
+        parameters["plm_id"] = {"values": plm_id, "distribution": "categorical"}
     else:
         parameters["plm_id"] = {"value": plm_id[0]}
 
