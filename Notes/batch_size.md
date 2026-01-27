@@ -179,3 +179,55 @@ Start OOM?
 *   **Don't spam `torch.cuda.empty_cache()` in your training loop.** It's expensive (~10ms) and PyTorch's caching allocator is smarter than you think. Only call it after major lifecycle events (deleting entire models).
 *   **Don't use `del` without `gc.collect()`.** Python's garbage collector is lazy. Always pair them.
 *   **Don't use DataParallel (DP).** Use DistributedDataParallel (DDP) instead. DP has ~30% overhead due to single-process bottlenecks.
+
+## 6. Gradient Accumulation Downsides
+### a. BatchNorm behavior
+
+BatchNorm statistics are computed per physical batch, not accumulated batch.
+
+So:
+
+Physical batch = 8
+
+Accumulation = 8
+→ BatchNorm still sees 8 samples, not 64
+
+This can hurt performance unless you:
+
+Use SyncBatchNorm
+
+Freeze BN
+
+Switch to LayerNorm / GroupNorm
+
+(Transformers avoid this, CNNs don’t.)
+
+### b. Regularization effects of true large batches
+
+Large batches change:
+
+Gradient noise scale
+
+Implicit regularization
+
+Accumulation mimics the mean gradient, but not all stochastic effects of real large batches.
+
+### c. GPU throughput / speed
+
+Accumulation does not make training faster
+
+Often slower:
+
+More forward/backward passes
+
+Same number of optimizer steps per epoch
+
+Large true batches:
+
+Better GPU utilization
+
+More parallelism
+
+Accumulation:
+
+Memory win, not a speed win

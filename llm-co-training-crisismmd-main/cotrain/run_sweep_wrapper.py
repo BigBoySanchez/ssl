@@ -78,16 +78,29 @@ def run_single_set(args, set_num):
     # Parse the final results from output
     # Look for the line with Validation F1, Accuracy, ECE
     # Specific to the helper: val_result_msg in main_bertweet.py
-    match = re.search(r'Validation .*F1: ([\d.]+), .*Accuracy: ([\d.]+), ECE: ([\d.]+)', output)
-    if match:
-        f1 = float(match.group(1))
-        acc = float(match.group(2))
-        ece = float(match.group(3))
-        return f1, acc, ece
+    val_match = re.search(r'Validation .*F1: ([\d.]+), .*Accuracy: ([\d.]+), ECE: ([\d.]+)', output)
+    test_match = re.search(r'Test .*F1: ([\d.]+), .*Accuracy: ([\d.]+), ECE: ([\d.]+)', output)
+    
+    metrics = {}
+    
+    if val_match:
+        metrics['val_f1'] = float(val_match.group(1))
+        metrics['val_acc'] = float(val_match.group(2))
+        metrics['val_ece'] = float(val_match.group(3))
     else:
         print(f"Failed to parse Validation results for set {set_num}")
-        # print(output) # Already printed via streaming
+
+    if test_match:
+        metrics['test_f1'] = float(test_match.group(1))
+        metrics['test_acc'] = float(test_match.group(2))
+        metrics['test_ece'] = float(test_match.group(3))
+    else:
+        print(f"Failed to parse Test results for set {set_num}")
+        
+    if not metrics:
         return None
+        
+    return metrics
 
 
 def main():
@@ -144,32 +157,61 @@ def main():
         print(f"Running set {set_num}")
         metrics = run_single_set(args, set_num)
         if metrics:
-            f1, acc, ece = metrics
             results.append(metrics)
+            
             # Log individual set results
-            wandb.log({
-                f"set_{set_num}_f1": f1,
-                f"set_{set_num}_accuracy": acc,
-                f"set_{set_num}_ece": ece
-            })
+            log_dict = {}
+            if 'val_f1' in metrics:
+                log_dict.update({
+                    f"set_{set_num}_f1": metrics['val_f1'],
+                    f"set_{set_num}_accuracy": metrics['val_acc'],
+                    f"set_{set_num}_ece": metrics['val_ece']
+                })
+            if 'test_f1' in metrics:
+                log_dict.update({
+                    f"set_{set_num}_test_f1": metrics['test_f1'],
+                    f"set_{set_num}_test_accuracy": metrics['test_acc'],
+                    f"set_{set_num}_test_ece": metrics['test_ece']
+                })
+            
+            wandb.log(log_dict)
+            
         else:
             print(f"No results for set {set_num}")
     
     if results:
-        # Calculate averages
-        avg_f1 = np.mean([r[0] for r in results])
-        avg_acc = np.mean([r[1] for r in results])
-        avg_ece = np.mean([r[2] for r in results])
+        # Calculate averages for Validation
+        val_f1s = [r['val_f1'] for r in results if 'val_f1' in r]
+        val_accs = [r['val_acc'] for r in results if 'val_acc' in r]
+        val_eces = [r['val_ece'] for r in results if 'val_ece' in r]
+        
+        avg_val_f1 = np.mean(val_f1s) if val_f1s else 0
+        avg_val_acc = np.mean(val_accs) if val_accs else 0
+        avg_val_ece = np.mean(val_eces) if val_eces else 0
+        
+        # Calculate averages for Test
+        test_f1s = [r['test_f1'] for r in results if 'test_f1' in r]
+        test_accs = [r['test_acc'] for r in results if 'test_acc' in r]
+        test_eces = [r['test_ece'] for r in results if 'test_ece' in r]
+        
+        avg_test_f1 = np.mean(test_f1s) if test_f1s else 0
+        avg_test_acc = np.mean(test_accs) if test_accs else 0
+        avg_test_ece = np.mean(test_eces) if test_eces else 0
         
         # Log averages
         wandb.log({
-            "avg_f1": avg_f1,
-            "avg_accuracy": avg_acc,
-            "avg_ece": avg_ece,
-            "val_f1": avg_f1  # Alias for sweep metric compatibility
+            "avg_f1": avg_val_f1,
+            "avg_accuracy": avg_val_acc,
+            "avg_ece": avg_val_ece,
+            "val_f1": avg_val_f1,  # Alias for sweep metric compatibility
+            
+            "avg_test_f1": avg_test_f1,
+            "avg_test_accuracy": avg_test_acc,
+            "avg_test_ece": avg_test_ece
         })
         
-        print(f"Average F1: {avg_f1:.4f}, Average Accuracy: {avg_acc:.4f}, Average ECE: {avg_ece:.4f}")
+        print(f"Average Val F1: {avg_val_f1:.4f}, Average Val Accuracy: {avg_val_acc:.4f}, Average Val ECE: {avg_val_ece:.4f}")
+        print(f"Average Test F1: {avg_test_f1:.4f}, Average Test Accuracy: {avg_test_acc:.4f}, Average Test ECE: {avg_test_ece:.4f}")
     
     wandb.finish()
 

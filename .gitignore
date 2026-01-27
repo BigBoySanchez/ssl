@@ -6,6 +6,7 @@
 **/10
 **/temp
 **/.env
+**/.venv
 **/__pycache__
 **/wandb
 **/secrets
