@@ -1601,10 +1601,7 @@ mean_acc = np.mean(acc_scores)
 mean_dev_f1 = np.mean(dev_f1_scores)
 std_dev_f1  = np.std(dev_f1_scores)
 
-# TODO temp, to save time
-old_sweep_metric_name = "macro-F1"
-wandb.log({ old_sweep_metric_name: float(mean_dev_f1) })
-wandb.run.summary[old_sweep_metric_name] = float(mean_dev_f1)
+
 
 wandb.log({
     "test_macro-F1": mean_f1,

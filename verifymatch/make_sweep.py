@@ -8,7 +8,7 @@ BASE_SWEEP = {
     "program": "train.py",
     "method": "grid",
     "metric": {
-        "name": "macro-F1",   # your training script logs this at the end
+        "name": "dev_macro-F1",   # your training script logs this at the end
         "goal": "maximize"
     },
     "parameters": {
