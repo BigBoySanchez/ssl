@@ -1545,6 +1545,11 @@ for set_num in set_nums:
         # === Test evaluation ===
         model.load_state_dict(torch.load(args.ckpt_path))
         test_loss, test_acc_pct, test_f1 = evaluate(test_dataset)
+        
+        # Cleanup model checkpoint if requested
+        if not args.keep_local_ckpt:
+            try: os.remove(args.ckpt_path)
+            except: pass
 
         # Collect raw predictions (and confidence) for artifacting
         y_true, y_pred, y_conf, guids, texts = predict(test_dataset, return_probs=True)
@@ -1587,15 +1592,6 @@ for set_num in set_nums:
             "sub_macro-F1": test_f1,
             "sub_acc": test_acc_pct / 100.0,
         })
-
-        preds_path = fr"{paths['vmatch_out']}/preds_set{set_num}_seed{seed}.jsonl"
-        with open(preds_path, "w") as f:
-            for y, p in zip(y_true, y_pred):        # if you keep them during evaluate(); or re-run quick pass to dump
-                f.write(json.dumps({"label": int(y), "pred": int(p)}) + "\n")
-
-        if not args.keep_local_ckpt:
-            try: os.remove(preds_path)
-            except: pass
 
 
 # === After all runs, average results ===
