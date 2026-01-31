@@ -5,7 +5,7 @@ import sys
 # Configuration
 ENTITY = "jacoba-california-state-university-east-bay"
 PROJECT = "lg-cotrain-humaid"
-OUTPUT_FILE = "best_val_f1.csv"
+OUTPUT_FILE = "best_plm_id.csv"
 
 def main():
     print(f"Connecting to WandB Project: {ENTITY}/{PROJECT}")
@@ -31,13 +31,13 @@ def main():
                 continue
                 
             # Extract metrics and config
-            avg_test_f1 = best_run.summary.get("avg_test_f1")
+            plm_id = best_run.config.get("plm_id")
             
             # Using .get() for safety, though these should exist given the sweep setup
             event = best_run.config.get("event")
             lbcl = best_run.config.get("lbcl")
             
-            if avg_test_f1 is None:
+            if plm_id is None:
                 # print(f"  [Skipping] 'avg_test_f1' missing in summary for sweep: {sweep.id}")
                 continue
                 
@@ -45,9 +45,9 @@ def main():
                 best_runs_data.append({
                     "event": event,
                     "lbcl": int(lbcl), # Ensure lbcl is numeric for proper sorting
-                    "avg_test_f1": avg_test_f1
+                    "plm_id": plm_id
                 })
-                # print(f"  + {event} (lbcl={lbcl}): avg_test_f1={avg_test_f1:.4f}")
+                # print(f"  + {event} (lbcl={lbcl}): plm_id={plm_id}")
 
         except Exception as e:
             print(f"  [Error] Processing sweep {sweep.id}: {e}")
@@ -62,7 +62,7 @@ def main():
 
     # Pivot: Index=event, Columns=lbcl, Values=val_f1
     # Sort index (events) alphabetically
-    pivot_df = df.pivot(index="event", columns="lbcl", values="avg_test_f1").sort_index()
+    pivot_df = df.pivot(index="event", columns="lbcl", values="plm_id").sort_index()
 
     # Save to CSV
     pivot_df.to_csv(OUTPUT_FILE)
