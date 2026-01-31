@@ -94,3 +94,8 @@ for lbcl in LBCL_SIZES:
 
 print(f"Total sweeps created: {len(ids)}")
 print(f"ids: {ids}")
+
+with open("sweep_ids.txt", "w") as f:
+    for sweep_id in ids:
+        f.write(f"{sweep_id}\n")
+print("✅ Saved sweep IDs to sweep_ids.txt")

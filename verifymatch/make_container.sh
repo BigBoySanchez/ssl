@@ -5,17 +5,12 @@ set -euo pipefail
 # CONFIG
 # ──────────────────────────────────────────────
 ENTITY="jacoba-california-state-university-east-bay"
-PROJECT="humaid_ssl"
+PROJECT="humaid_ssl_category_match"
 IMAGE="cahsi/disaster-ssl:cuda12-py2.2"
-MAX_GPUS=7
+MAX_GPUS=6
 SWEEP_ID_FILE="sweep_ids.txt"   # one sweep ID per line
-INCREMENT=4                     # stride over (event×lbcl) combos
-START_OFFSET=3                  # start combo index (0-based) before stride
-
-# ──────────────────────────────────────────────
-# DATA
-# ──────────────────────────────────────────────
-DATA_MOUNT="${HOME}/data:/workspace/ssl/data"
+INCREMENT=1                     # stride over (event×lbcl) combos
+START_OFFSET=0                  # start combo index (0-based) before stride
 
 # ──────────────────────────────────────────────
 # EVENTS AND LBCL COMBOS
@@ -33,10 +28,12 @@ declare -a EVENTS=(
   "kerala_floods_2018"
 )
 declare -a LBCLS=(5 10 25 50)
+declare -a SET_NUMS=(1 2 3)
 
 NUM_EVENTS=${#EVENTS[@]}     # 10
 NUM_LBCLS=${#LBCLS[@]}       # 4
-NUM_COMBOS=$(( NUM_EVENTS * NUM_LBCLS ))  # 40
+NUM_SETS=${#SET_NUMS[@]}     # 3
+NUM_COMBOS=$(( NUM_LBCLS * NUM_EVENTS * NUM_SETS ))  # 120
 
 # ──────────────────────────────────────────────
 # LOAD SWEEPS
@@ -48,7 +45,7 @@ fi
 mapfile -t SWEEP_IDS < "$SWEEP_ID_FILE"
 total_sweeps=${#SWEEP_IDS[@]}
 
-# Require at least one sweep per (event, lbcl) combo
+# Require at least one sweep per (lbcl, event, set) combo
 if (( total_sweeps < NUM_COMBOS )); then
   echo "❌ Need at least ${NUM_COMBOS} sweep IDs (have ${total_sweeps})."
   exit 1
@@ -65,36 +62,46 @@ launch_agent() {
     local gpu_id=$1
     local event=$2
     local lbcl=$3
-    local sweep_id=$4
+    local set_num=$4
+    local sweep_id=$5
     local cname="cahsi-gpu${gpu_id}"
 
-    echo "🚀 Launching ${cname} → ${event} ${lbcl}lbcl (sweep ${sweep_id})"
+    echo "🚀 Launching ${cname} → ${event} ${lbcl}lbcl set${set_num} (sweep ${sweep_id})"
     docker run -d --gpus "device=${gpu_id}" \
       -e EVENT_NAME="${event}" \
       -e LBCL_SIZE="${lbcl}" \
-      -v ${DATA_MOUNT} \
-      -v /data/${USER}:/workspace/ssl/artifacts \
+      -e SET_NUM="${set_num}" \
+      -v ${HOME}/ssl:/workspace/ssl \
+      -v /tmp/humaid_ssl:/workspace/ssl/artifacts \
       --name "${cname}" \
       "${IMAGE}" \
       bash -c '
-        mkdir -p /workspace/ssl/artifacts && \
-        apt-get update -y && apt-get install -y --no-install-recommends git && \
-        cd /workspace/ssl && \
-        git fetch origin && git reset --hard origin/main && \
-        cd verifymatch && \
-        echo "[Agent '${gpu_id}'] Running sweep '${sweep_id}' ('${event}' '${lbcl}'lbcl)" && \
-        wandb agent --count 10 '${ENTITY}'/'${PROJECT}'/'${sweep_id}' && \
+        cd /workspace/ssl/verifymatch && \
+        echo "[Agent '${gpu_id}'] Running sweep '${sweep_id}' ('${event}' '${lbcl}'lbcl set'${set_num}')" && \
+        wandb agent '${ENTITY}'/'${PROJECT}'/'${sweep_id}' && \
         echo "[Agent '${gpu_id}'] Sweep '${sweep_id}' finished."
     '
 }
 
-# Helper: compute (event_idx, lbcl_idx) from a linear combo index
+# Helper: compute (lbcl_idx, event_idx, set_idx) from a linear combo index
+# make_sweep.py order:
+# for lbcl in LBCL_SIZES:
+#     for event in EVENTS:
+#         for set_num in SET_NUMS:
 compute_indices() {
   local combo_idx=$1
   # wrap combo index across all combos
   local wrapped_idx=$(( combo_idx % NUM_COMBOS ))
-  EVENT_IDX=$(( (wrapped_idx / NUM_LBCLS) % NUM_EVENTS ))
-  LBCL_IDX=$(( wrapped_idx % NUM_LBCLS ))
+
+  # Inner loop: Set
+  SET_IDX=$(( wrapped_idx % NUM_SETS ))
+  local remaining=$(( wrapped_idx / NUM_SETS ))
+
+  # Middle loop: Event
+  EVENT_IDX=$(( remaining % NUM_EVENTS ))
+  
+  # Outer loop: LBCL
+  LBCL_IDX=$(( remaining / NUM_EVENTS ))
 }
 
 # ──────────────────────────────────────────────
@@ -103,49 +110,83 @@ compute_indices() {
 for ((gpu=0; gpu<MAX_GPUS; gpu++)); do
   combo_idx=$(( START_OFFSET + gpu * INCREMENT ))
   compute_indices "$combo_idx"
+  
   event=${EVENTS[$EVENT_IDX]}
   lbcl=${LBCLS[$LBCL_IDX]}
+  set_num=${SET_NUMS[$SET_IDX]}
 
-  # 🔒 Enforced mapping: sweep_ids[event_idx * NUM_LBCLS + lbcl_idx]
-  sweep_flat_idx=$(( EVENT_IDX * NUM_LBCLS + LBCL_IDX ))
+  # 🔒 Enforced mapping: matches make_sweep.py order
+  # sweep_flat_idx = LBCL_IDX * (NUM_EVENTS * NUM_SETS) + EVENT_IDX * NUM_SETS + SET_IDX
+  # which is exactly 'wrapped_idx' if total_sweeps == NUM_COMBOS.
+  # But we calculate explicitly to be safe/clear.
+  sweep_flat_idx=$(( LBCL_IDX * NUM_EVENTS * NUM_SETS + EVENT_IDX * NUM_SETS + SET_IDX ))
+
   if (( sweep_flat_idx >= total_sweeps )); then
     echo "❌ sweep index ${sweep_flat_idx} out of range (have ${total_sweeps})."
     exit 1
   fi
   sweep_id=${SWEEP_IDS[$sweep_flat_idx]}
 
-  launch_agent "$gpu" "$event" "$lbcl" "$sweep_id"
+  launch_agent "$gpu" "$event" "$lbcl" "$set_num" "$sweep_id"
 done
 
+# ──────────────────────────────────────────────
 # ──────────────────────────────────────────────
 # EVENT-DRIVEN MONITOR: KEEP CONTAINERS ALIVE
 # ──────────────────────────────────────────────
 echo "📡 Watching for stopped containers..."
 
-current_job=$MAX_GPUS  # after initial batch
+current_job=$MAX_GPUS  # next job index to run (after initial batch 0..MAX_GPUS-1)
+active_agents=$MAX_GPUS
 
-docker events --filter 'event=die' --format '{{.Actor.Attributes.name}}' |
+# Use process substitution so the while loop runs in current shell
+# allowing us to modify variables (active_agents, current_job)
 while read -r cname; do
   if [[ $cname == cahsi-gpu* ]]; then
     gpu_id="${cname//[!0-9]/}"
-    echo "⚡ ${cname} stopped → restarting agent (GPU ${gpu_id})..."
+    echo "⚡ ${cname} stopped (GPU ${gpu_id})"
+    
+    ((active_agents--))
 
+    # Calculate next job
     combo_idx=$(( START_OFFSET + current_job * INCREMENT ))
-    compute_indices "$combo_idx"
-    event=${EVENTS[$EVENT_IDX]}
-    lbcl=${LBCLS[$LBCL_IDX]}
+    
+    # Check if we have more sweeps to run
+    # (Assuming we want to run exactly total_sweeps or NUM_COMBOS logic. 
+    #  Here we use total_sweeps from the file check.)
+    if (( combo_idx < NUM_COMBOS )); then
+       # We might need to strictly check against NUM_COMBOS or just file lines. 
+       # Using the existing logic that maps combo_idx -> sweep_id
+       
+       compute_indices "$combo_idx"
+       event=${EVENTS[$EVENT_IDX]}
+       lbcl=${LBCLS[$LBCL_IDX]}
+       set_num=${SET_NUMS[$SET_IDX]}
 
-    # 🔒 Enforced mapping: sweep_ids[event_idx * NUM_LBCLS + lbcl_idx]
-    sweep_flat_idx=$(( EVENT_IDX * NUM_LBCLS + LBCL_IDX ))
-    if (( sweep_flat_idx >= total_sweeps )); then
-      echo "❌ sweep index ${sweep_flat_idx} out of range (have ${total_sweeps})."
-      exit 1
+       sweep_flat_idx=$(( LBCL_IDX * NUM_EVENTS * NUM_SETS + EVENT_IDX * NUM_SETS + SET_IDX ))
+
+       # Boundary check
+       if (( sweep_flat_idx < total_sweeps )); then
+         sweep_id=${SWEEP_IDS[$sweep_flat_idx]}
+         
+         echo "🔄 Restarting GPU ${gpu_id} with next sweep..."
+         docker rm -f "$cname" >/dev/null 2>&1 || true
+         launch_agent "$gpu_id" "$event" "$lbcl" "$set_num" "$sweep_id"
+         
+         ((active_agents++))
+         ((current_job++))
+       else
+         echo "🛑 No more valid sweeps for this index path."
+       fi
+    else
+       echo "🏁 All sweeps scheduled."
     fi
-    sweep_id=${SWEEP_IDS[$sweep_flat_idx]}
 
-    ((current_job++))
-
-    docker rm -f "$cname" >/dev/null 2>&1 || true
-    launch_agent "$gpu_id" "$event" "$lbcl" "$sweep_id"
+    echo "📊 Active agents: ${active_agents}"
+    
+    if (( active_agents == 0 )); then
+      echo "🎉 All sweeps completed! Exiting."
+      exit 0
+    fi
   fi
-done
+done < <(docker events --filter 'event=die' --format '{{.Actor.Attributes.name}}')
