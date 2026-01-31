@@ -23,6 +23,20 @@ from transformers import (
     get_polynomial_decay_schedule_with_warmup
 )
 
+# Added event class mapping
+EVENT_CLASS_MAPPING = {
+    'california_wildfires_2018': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'missing_or_found_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'canada_wildfires_2016': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'cyclone_idai_2019': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'missing_or_found_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'hurricane_dorian_2019': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'hurricane_florence_2018': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'hurricane_harvey_2017': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'hurricane_irma_2017': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'hurricane_maria_2017': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'kaikoura_earthquake_2016': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'kerala_floods_2018': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support']
+}
+
 from torch.optim import AdamW
 from transformers import AutoModel, AutoTokenizer
 
@@ -81,12 +95,9 @@ parser.add_argument('--consistency',action='store_true')
 parser.add_argument('--high_mixup',action='store_true',default=False)
 parser.add_argument('--multigpus',action='store_true')
 parser.add_argument('--unlabeled_batch_size',type=int,default=32)
-parser.add_argument('--set_num', type=int, default=None)
-parser.add_argument('--artifact_mode', type=str, default='best',
-                    choices=['none', 'best', 'periodic', 'all'],
-                    help="Which checkpoints to store as W&B Artifacts.")
-parser.add_argument('--artifact_every', type=int, default=1,
-                    help="If artifact_mode=periodic, save every N epochs.")
+parser.add_argument('--set_num', type=int, required=True, help='set number (1, 2, or 3)')
+parser.add_argument('--event', type=str, required=True, help='event name')
+parser.add_argument('--lbcl', type=str, required=True, help='label count')
 parser.add_argument('--keep_local_ckpt', action='store_true',
                     help="Keep local .pt files after logging artifacts (default: delete after upload).")
 args = parser.parse_args()
@@ -106,8 +117,8 @@ args.do_evaluate = True
 args.ssl = True
 args.mixup = True
 
-event = os.getenv("EVENT_NAME", "california_wildfires_2018")
-lbcl = os.getenv("LBCL_SIZE", "5")
+event = args.event
+lbcl = args.lbcl
 run_num = os.getenv("WANDB_RUN_ID", str(int(time.time())))
 
 group_name = f'{event}_{lbcl}'
@@ -162,7 +173,12 @@ print(args)
 assert args.task in ('SNLI', 'MNLI', 'QQP', 'TwitterPPDB', 'SWAG', 'HellaSWAG', 'SICK','RTE','FEVER','HANS','CrisisMMDINF', 'HumAID')
 assert args.model in ('bert-base-uncased', 'roberta-base', 'bert-large-uncased', 'vinai/bertweet-base')
 if args.task in ('HumAID'):
-    n_classes = 10
+    if args.event in EVENT_CLASS_MAPPING:
+        n_classes = len(EVENT_CLASS_MAPPING[args.event])
+        print(f"Using {n_classes} classes for event: {args.event}")
+    else:
+        n_classes = 10
+        print(f"Warning: Event {args.event} not found in mapping. Using default 10 classes.")
 elif args.task in ('SNLI', 'MNLI','SICK','FEVER','HANS'):
     n_classes = 3
 elif args.task in ('QQP', 'TwitterPPDB','RTE','CrisisMMDINF'):
@@ -314,13 +330,19 @@ def encode_label(label):
 class HumAIDProcessor:
     """Data loader for HumAID."""
 
-    def __init__(self):
-        self.label_map = {'requests_or_urgent_needs': 0, 
-                        'rescue_volunteering_or_donation_effort': 1, 'infrastructure_and_utility_damage': 2, 
-                        'missing_or_found_people': 3, 'displaced_people_and_evacuations': 4, 
-                        'sympathy_and_support': 5, 'injured_or_dead_people': 6, 
-                        'caution_and_advice': 7, 'other_relevant_information': 8,
-                        'not_humanitarian': 9}
+    def __init__(self, event=None):
+        if event and event in EVENT_CLASS_MAPPING:
+            # Dynamically create label map based on alphabetized class list
+            classes = EVENT_CLASS_MAPPING[event]
+            self.label_map = {label: i for i, label in enumerate(classes)}
+        else:
+            # Fallback to default
+            self.label_map = {'requests_or_urgent_needs': 0, 
+                            'rescue_volunteering_or_donation_effort': 1, 'infrastructure_and_utility_damage': 2, 
+                            'missing_or_found_people': 3, 'displaced_people_and_evacuations': 4, 
+                            'sympathy_and_support': 5, 'injured_or_dead_people': 6, 
+                            'caution_and_advice': 7, 'other_relevant_information': 8,
+                            'not_humanitarian': 9}
 
     def valid_inputs(self, sentence1, label):
         return len(sentence1) > 0 and label in self.label_map
@@ -737,7 +759,7 @@ class HellaSWAGProcessor:
 def select_processor():
     """Selects data processor using task name."""
 
-    return globals()[f'{args.task}Processor']()
+    return globals()[f'{args.task}Processor'](event=args.event) if args.task == 'HumAID' else globals()[f'{args.task}Processor']()
 
 
 
@@ -1397,7 +1419,7 @@ if args.task == 'MNLI':
 # ===============================================================
 # Averaged sweep-compatible training: one W&B run per config
 # ===============================================================
-set_nums = [1, 2, 3]
+set_nums = [args.set_num]
 seeds = [67]
 
 macro_f1_scores, acc_scores = [], []
@@ -1577,21 +1599,6 @@ for set_num in set_nums:
 
 
 # === After all runs, average results ===
-overall_best_idx = int(np.argmax(dev_f1_scores))
-overall_best_set  = set_nums[overall_best_idx // len(seeds)]
-overall_best_seed = seeds[overall_best_idx % len(seeds)]
-best_ckpt = f"{paths['vmatch_out']}/model_set{overall_best_set}_seed{overall_best_seed}.pt"
-
-# TODO pt not saving consistently
-if os.path.exists(best_ckpt):
-    art_name = f"{args.task}-{event}-lb{lbcl}"
-    artifact = wandb.Artifact(art_name, type="model",
-        metadata={"best_set": overall_best_set, "best_seed": overall_best_seed})
-    artifact.add_file(best_ckpt, name="model.pt")
-    wandb.log_artifact(artifact, aliases=["best"])
-else:
-    print(f"[WARN] Best checkpoint not found at {best_ckpt}. Skipping artifact upload.")
-
 mean_f1 = np.mean(macro_f1_scores)
 std_f1  = np.std(macro_f1_scores)
 mean_acc = np.mean(acc_scores)
