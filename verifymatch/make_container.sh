@@ -78,7 +78,7 @@ launch_agent() {
       bash -c '
         cd /workspace/ssl/verifymatch && \
         echo "[Agent '${gpu_id}'] Running sweep '${sweep_id}' ('${event}' '${lbcl}'lbcl set'${set_num}')" && \
-        wandb agent '${ENTITY}'/'${PROJECT}'/'${sweep_id}' && \
+        wandb agent --count 25 '${ENTITY}'/'${PROJECT}'/'${sweep_id}' && \
         echo "[Agent '${gpu_id}'] Sweep '${sweep_id}' finished."
     '
 }
