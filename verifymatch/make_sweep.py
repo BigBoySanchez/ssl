@@ -6,26 +6,50 @@ import wandb, subprocess, copy, os
 BASE_SWEEP = {
     "name": "humaid_ssl_sweep",
     "program": "train.py",
-    "method": "grid",
+    "method": "bayes",
     "metric": {
         "name": "dev_macro-F1",   # your training script logs this at the end
         "goal": "maximize"
     },
     "parameters": {
         # === optimization hyperparameters ===
-        "learning_rate": {"values": [2e-5, 2e-6, 4e-5]},
-        "weight_decay": {"values": [0.0]},
-        "batch_size": {"values": [32, 16, 8]},
-        "epochs": {"values": [18, 12, 8]},
+        "learning_rate": {
+            "distribution": "log_uniform_values",
+            "min": 1e-6,
+            "max": 1e-4
+        },
+        "weight_decay": {
+            "values": [0.0, 1e-4, 1e-3, 1e-2]
+        },
+        "batch_size": {
+            "values": [8, 16, 32]
+        },
+        "epochs": {
+            "distribution": "int_uniform",
+            "min": 2,
+            "max": 6
+        },
 
         # === semi-supervised control ===
-        "T": {"values": [0.5]},           # temperature
-        "mixup_loss_weight": {"values": [1.0]}, # consistency weight
+        "T": {
+            "distribution": "uniform",
+            "min": 0.3,
+            "max": 0.7
+        },
+        "mixup_loss_weight": {
+            "distribution": "uniform",
+            "min": 0.5,
+            "max": 1.5
+        },
 
         # === stability & regularization ===
         "label_smoothing": {"values": [0.3]},
-        "max_grad_norm": {"values": [1.0]},
-        "th": {"values": [0.7]},                # pseudo-label threshold
+        "max_grad_norm": {
+            "distribution": "uniform",
+            "min": 0.5,
+            "max": 2.0
+        },
+        # "th": REMOVED (Dead code, uses Oracle filtering)
         "pseudo_label_by_normalized": {"values": [False]},
         "unlabeled_batch_size": {"values": [32]},
 
@@ -86,7 +110,7 @@ for lbcl in LBCL_SIZES:
             sweep_cfg["parameters"]["event"] = {"value": event}
             sweep_cfg["parameters"]["lbcl"] = {"value": lbcl}
 
-            project = f"humaid_ssl_category_match"
+            project = f"humaid_vmatch_category_match_bayes"
 
             sweep_id = wandb.sweep(sweep=sweep_cfg, project=project, entity=ENTITY)
             ids.append(sweep_id)
