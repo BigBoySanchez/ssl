@@ -194,8 +194,8 @@ def main():
     ap.add_argument("--label_order", nargs="*")
     ap.add_argument("--model_name", default="bert-base-uncased")
     ap.add_argument("--lrs", nargs="*", type=float, default=[2e-5, 3e-5])
-    ap.add_argument("--epochs", nargs="*", type=int, default=[3, 5])
-    ap.add_argument("--batch_sizes", nargs="*", type=int, default=[16, 32])
+    ap.add_argument("--epochs_list", nargs="*", type=int, default=[3, 5], dest="epochs_list")
+    ap.add_argument("--batch_sizes_list", nargs="*", type=int, default=[16, 32], dest="batch_sizes_list")
     ap.add_argument("--selection_metric", choices=["f1", "accuracy"], default="f1")
     ap.add_argument("--seed", type=int, default=int(time.time()))
     ap.add_argument("--allow_cpu", action="store_true")
@@ -204,6 +204,11 @@ def main():
     # CHANGE #2: allow overriding max_length
     ap.add_argument("--max_length", type=int, default=0,
                     help="If >0, cap sequence length to this; else auto = min(512, model_max-2).")
+
+    # HPO Single Args
+    ap.add_argument("--learning_rate", type=float, help="Learning rate (WandB sweep)")
+    ap.add_argument("--batch_size", type=int, help="Batch size (WandB sweep)")
+    ap.add_argument("--epochs", type=int, help="Epochs (WandB sweep)")
 
     # HPO / HumAID Auto args
     ap.add_argument("--event", type=str, help="HumAID event name for auto-path resolution")
@@ -217,50 +222,51 @@ def main():
     if args.event and args.lbcl and args.set_num:
         # Auto-mode: use specific run name config
         wandb.init(project=args.project_name, config=args, reinit=True)
-        # Allow wandb sweep to override these
-        args.learning_rate = wandb.config.get("learning_rate", args.lrs[0])
-        args.epochs = wandb.config.get("epochs", args.epochs[0])
-        args.batch_size = wandb.config.get("batch_size", args.batch_sizes[0])
+    # Initialize WandB
+    if args.event and args.lbcl and args.set_num:
+        # Auto-mode: use specific run name config
+        wandb.init(project=args.project_name, config=args, reinit=True)
+        # Allow wandb sweep to override these, OR command line args
+        # Prioritize: 1. CLI arg 2. WandB config 3. First item of list default
+        
+        lr_val = args.learning_rate if args.learning_rate else wandb.config.get("learning_rate", args.lrs[0])
+        ep_val = args.epochs if args.epochs else wandb.config.get("epochs", args.epochs_list[0])
+        bs_val = args.batch_size if args.batch_size else wandb.config.get("batch_size", args.batch_sizes_list[0])
+        
         args.model_name = wandb.config.get("model_name", args.model_name)
         args.max_length = wandb.config.get("max_length", args.max_length)
         
         # Override lrs/epochs/batch_sizes lists to single values for compatibility with downstream loop code
-        args.lrs = [args.learning_rate]
-        args.epochs = [args.epochs]
-        args.batch_sizes = [args.batch_size]
+        args.lrs = [float(lr_val)]
+        args.epochs_list = [int(ep_val)]
+        args.batch_sizes_list = [int(bs_val)]
 
         print(f"✅ Auto-Mode: Event={args.event}, LBCL={args.lbcl}, Set={args.set_num}")
-        print(f"   Hyperparams: LR={args.learning_rate}, BS={args.batch_size}, Eps={args.epochs}")
+        print(f"   Hyperparams: LR={args.lrs[0]}, BS={args.batch_sizes_list[0]}, Eps={args.epochs_list[0]}")
 
-        # Resolve paths
-        if get_paths:
-            # We want to filter manually, so we can just point to the ROOT folders
-            # path to joined root for dev/test
-            args.dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/humaid/joined"))
+        # We want to filter manually, so we can just point to the ROOT folders
+        # path to joined root for dev/test
+        args.dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/humaid/joined"))
+        
+        # path to train labeled (contains all events?)
+        # User said "see tree output".
+        # The tree output shows: anh_4o_mini/sep/10lb/1/labeled.tsv
+        # so we should construct this path.
+        
+        base_data = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/humaid"))
+        # try anh_4o_mini first as per user tree
+        train_base = os.path.join(base_data, "anh_4o_mini", "sep", f"{args.lbcl}lb", str(args.set_num), "labeled.tsv")
+        if not os.path.exists(train_base):
+                # Fallback to anh_4o if exists (old path)
+                train_base = os.path.join(base_data, "anh_4o", "sep", f"{args.lbcl}lb", str(args.set_num), "labeled.tsv")
+        
+        args.train_path = train_base
+        args.output_dir = os.path.join(os.path.dirname(__file__), f"outputs/sup_{args.event}_{args.lbcl}lb_set{args.set_num}")
             
-            # path to train labeled (contains all events?)
-            # Wait, get_paths returns specific paths from run_humaid.
-            # run_humaid.get_paths uses separate_event which creates temp files.
-            # We want to avoid temp files.
-            # So we construct the path to the SOURCE info manually or use get_paths just to fail if missing?
-            # User said "see tree output".
-            # The tree output shows: anh_4o_mini/sep/10lb/1/labeled.tsv
-            # so we should construct this path.
-            
-            base_data = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/humaid"))
-            # try anh_4o_mini first as per user tree
-            train_base = os.path.join(base_data, "anh_4o_mini", "sep", f"{args.lbcl}lb", str(args.set_num), "labeled.tsv")
-            if not os.path.exists(train_base):
-                 # Fallback to anh_4o if exists (old path)
-                 train_base = os.path.join(base_data, "anh_4o", "sep", f"{args.lbcl}lb", str(args.set_num), "labeled.tsv")
-            
-            args.train_path = train_base
-            args.output_dir = os.path.join(os.path.dirname(__file__), f"outputs/sup_{args.event}_{args.lbcl}lb_set{args.set_num}")
-            
-            args.label_col = "class_label"
-            
-            print(f"   Dataset Path: {args.dataset_path}")
-            print(f"   Train Path: {args.train_path}")
+        args.label_col = "class_label"
+        
+        print(f"   Dataset Path: {args.dataset_path}")
+        print(f"   Train Path: {args.train_path}")
 
     if not args.dataset_path or not args.output_dir:
         raise ValueError("Must provide either --dataset_path and --output_dir OR (--event, --lbcl, --set_num) for auto-resolution.")
@@ -324,7 +330,8 @@ def main():
     # Grid search
     best_cfg, best_score = None, -1.0
     summary_rows = []
-    for lr, ep, bs in itertools.product(args.lrs, args.epochs, args.batch_sizes):
+    # If using Auto Mode, these lists have exactly 1 item each
+    for lr, ep, bs in itertools.product(args.lrs, args.epochs_list, args.batch_sizes_list):
         model = AutoModelForSequenceClassification.from_pretrained(
             args.model_name, num_labels=len(label2id), id2label=id2label, label2id=label2id
         )
