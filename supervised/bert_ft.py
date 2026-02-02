@@ -21,6 +21,7 @@ import wandb
 
 
 import numpy as np
+import pandas as pd
 import torch
 from datasets import load_from_disk, load_dataset, Dataset, DatasetDict
 from transformers import (AutoTokenizer, AutoModelForSequenceClassification,
@@ -45,7 +46,8 @@ def load_raw_dataset(dataset_path: str,
                      tsv_train: str = "train.tsv",
                      tsv_dev:   str = "dev.tsv",
                      tsv_test:  str = "test.tsv",
-                     tsv_delim: str = "\t") -> DatasetDict:
+                     tsv_delim: str = "\t",
+                     event_filter: Optional[str] = None) -> DatasetDict:
     """Load dataset from HF dir or TSV folder."""
     def _is_dir_with_tsvs(p):
         return os.path.isdir(p) and any(
@@ -67,8 +69,21 @@ def load_raw_dataset(dataset_path: str,
         if os.path.exists(fp_dev):   files["dev"]   = fp_dev
         if os.path.exists(fp_test):  files["test"]  = fp_test
         assert "dev" in files and "test" in files, "TSV folder must contain at least dev/test."
-        ds = load_dataset("csv", data_files=files, delimiter=tsv_delim)
-        return DatasetDict({k: v for k, v in ds.items()})
+        
+        # If event filter is active, read via pandas, filter, and convert
+        if event_filter:
+            dd = {}
+            for split, fp in files.items():
+                df = pd.read_csv(fp, sep=tsv_delim)
+                if "event" in df.columns:
+                    df = df[df["event"] == event_filter]
+                else:
+                    print(f"Warning: --event {event_filter} passed but 'event' col missing in {fp}")
+                dd[split] = Dataset.from_pandas(df)
+            return DatasetDict(dd)
+        else:
+            ds = load_dataset("csv", data_files=files, delimiter=tsv_delim)
+            return DatasetDict({k: v for k, v in ds.items()})
 
     if raw_format == "hf":
         return _load_hf(dataset_path)
@@ -118,31 +133,49 @@ def tokenize_with_labels(ds: Dataset, tok, text_col: str, label_col: str,
     return ds.remove_columns(drop)
 
 
-def load_train_dataset(train_path: Optional[str], train_hf: Optional[str], split: str) -> Dataset:
+def load_train_dataset(train_path: Optional[str], train_hf: Optional[str], split: str, event_filter: Optional[str] = None) -> Dataset:
     if train_path:
         ext = os.path.splitext(train_path)[-1].lower()
         if ext in (".csv", ".tsv"):
             sep = "\t" if ext == ".tsv" else ","
-            return load_dataset("csv", data_files=train_path, split="train", delimiter=sep)
+            if event_filter:
+                df = pd.read_csv(train_path, sep=sep)
+                if "event" in df.columns:
+                    df = df[df["event"] == event_filter]
+                elif "10lb" not in train_path and "5lb" not in train_path and "25lb" not in train_path and "50lb" not in train_path:
+                     # Only warn if not in a lbcl partitioned folder where filtering might be implicit? 
+                     # Actually, we verified 10lb/1/labeled.tsv HAS event column, so we should allow filtering.
+                     print(f"Warning: --event {event_filter} passed but 'event' col missing in {train_path}")
+                return Dataset.from_pandas(df)
+            else:
+                return load_dataset("csv", data_files=train_path, split="train", delimiter=sep)
         elif ext in (".json", ".jsonl"):
+            # Filtering for json not implemented yet but unlikely for this task
             return load_dataset("json", data_files=train_path, split="train")
         else:
             try:
                 dsd = load_from_disk(train_path)
-                return dsd[split] if isinstance(dsd, DatasetDict) else dsd
+                ds = dsd[split] if isinstance(dsd, DatasetDict) else dsd
+                # Filter if HF dataset has event column
+                if event_filter and "event" in ds.column_names:
+                     return ds.filter(lambda x: x["event"] == event_filter)
+                return ds
             except Exception as e:
                 raise ValueError(f"Could not load --train_path='{train_path}': {e}")
     if train_hf:
         dsd = load_from_disk(train_hf)
-        return dsd[split] if isinstance(dsd, DatasetDict) else dsd
+        ds = dsd[split] if isinstance(dsd, DatasetDict) else dsd
+        if event_filter and "event" in ds.column_names:
+                return ds.filter(lambda x: x["event"] == event_filter)
+        return ds
     raise ValueError("Provide --train_path or --train_hf (or rely on dataset_path train split).")
 
 
 # ----------------------------- Main -----------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dataset_path", required=True)
-    ap.add_argument("--output_dir", required=True)
+    ap.add_argument("--dataset_path")
+    ap.add_argument("--output_dir")
     ap.add_argument("--train_path")
     ap.add_argument("--train_hf")
     ap.add_argument("--train_split_name", default="train")
@@ -201,21 +234,37 @@ def main():
 
         # Resolve paths
         if get_paths:
-            paths = get_paths(args.event, args.lbcl, args.set_num)
-            # Use separate_event logic from runs? 
-            # get_paths returns: dev_path, test_path, joined_path, train_labeled_path, etc.
-            # We map these to args
-            args.dataset_path = paths["joined_path"]
-            args.train_path = paths["train_labeled_path"]
-            args.output_dir = paths["vmatch_out"].replace("vmatch", "sup_bert") + "_ft" # Separate output dir
+            # We want to filter manually, so we can just point to the ROOT folders
+            # path to joined root for dev/test
+            args.dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/humaid/joined"))
             
-            # Auto-set label columns if needed, though HumAID usually standard
-            # args.label_col is default "label" but run_humaid logic passes "class_label"?
-            # wait, run_humaid.py passes --label_col class_label
-            # We should probably force it or rely on user passing it in make_container args?
-            # Ideally we hardcode it for HumAID auto mode
+            # path to train labeled (contains all events?)
+            # Wait, get_paths returns specific paths from run_humaid.
+            # run_humaid.get_paths uses separate_event which creates temp files.
+            # We want to avoid temp files.
+            # So we construct the path to the SOURCE info manually or use get_paths just to fail if missing?
+            # User said "see tree output".
+            # The tree output shows: anh_4o_mini/sep/10lb/1/labeled.tsv
+            # so we should construct this path.
+            
+            base_data = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/humaid"))
+            # try anh_4o_mini first as per user tree
+            train_base = os.path.join(base_data, "anh_4o_mini", "sep", f"{args.lbcl}lb", str(args.set_num), "labeled.tsv")
+            if not os.path.exists(train_base):
+                 # Fallback to anh_4o if exists (old path)
+                 train_base = os.path.join(base_data, "anh_4o", "sep", f"{args.lbcl}lb", str(args.set_num), "labeled.tsv")
+            
+            args.train_path = train_base
+            args.output_dir = os.path.join(os.path.dirname(__file__), f"outputs/sup_{args.event}_{args.lbcl}lb_set{args.set_num}")
+            
             args.label_col = "class_label"
             
+            print(f"   Dataset Path: {args.dataset_path}")
+            print(f"   Train Path: {args.train_path}")
+
+    if not args.dataset_path or not args.output_dir:
+        raise ValueError("Must provide either --dataset_path and --output_dir OR (--event, --lbcl, --set_num) for auto-resolution.")
+
     os.makedirs(args.output_dir, exist_ok=True)
     set_seed(args.seed)
 
@@ -230,13 +279,14 @@ def main():
         raw_format=args.raw_format,
         tsv_train=args.tsv_train, tsv_dev=args.tsv_dev, tsv_test=args.tsv_test,
         tsv_delim=args.tsv_delim,
+        event_filter=args.event # Pass event filter
     )
     assert "dev" in dsd_raw and "test" in dsd_raw, "need dev/test splits"
     dev_raw = dsd_raw[args.dev_split_name]
     test_raw = dsd_raw[args.test_split_name]
 
     if args.train_path or args.train_hf:
-        train_raw = load_train_dataset(args.train_path, args.train_hf, args.train_split_name)
+        train_raw = load_train_dataset(args.train_path, args.train_hf, args.train_split_name, event_filter=args.event)
     else:
         assert args.train_split_name in dsd_raw
         train_raw = dsd_raw[args.train_split_name]
