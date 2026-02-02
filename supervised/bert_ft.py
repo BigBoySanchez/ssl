@@ -6,8 +6,19 @@
 #     --output_dir outputs\bert_supervised_min ^
 #     --text_col tweet_text --label_col label --id_col tweet_id
 
-import argparse, os, json, itertools, time, random
+import argparse, os, json, itertools, time, random, sys
 from typing import List, Dict, Optional
+
+# Add utils to path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../utils'))
+try:
+    from run_humaid import get_paths
+except ImportError:
+    print("Warning: Could not import get_paths from run_humaid. Make sure ../utils exists.")
+    get_paths = None
+
+import wandb
+
 
 import numpy as np
 import torch
@@ -161,7 +172,50 @@ def main():
     ap.add_argument("--max_length", type=int, default=0,
                     help="If >0, cap sequence length to this; else auto = min(512, model_max-2).")
 
+    # HPO / HumAID Auto args
+    ap.add_argument("--event", type=str, help="HumAID event name for auto-path resolution")
+    ap.add_argument("--lbcl", type=int, help="Labels per class for auto-path resolution")
+    ap.add_argument("--set_num", type=int, help="Set number for auto-path resolution")
+    ap.add_argument("--project_name", type=str, default="humaid_supervised_hpo", help="WandB project name")
+
     args = ap.parse_args()
+    
+    # Initialize WandB
+    if args.event and args.lbcl and args.set_num:
+        # Auto-mode: use specific run name config
+        wandb.init(project=args.project_name, config=args, reinit=True)
+        # Allow wandb sweep to override these
+        args.learning_rate = wandb.config.get("learning_rate", args.lrs[0])
+        args.epochs = wandb.config.get("epochs", args.epochs[0])
+        args.batch_size = wandb.config.get("batch_size", args.batch_sizes[0])
+        args.model_name = wandb.config.get("model_name", args.model_name)
+        args.max_length = wandb.config.get("max_length", args.max_length)
+        
+        # Override lrs/epochs/batch_sizes lists to single values for compatibility with downstream loop code
+        args.lrs = [args.learning_rate]
+        args.epochs = [args.epochs]
+        args.batch_sizes = [args.batch_size]
+
+        print(f"✅ Auto-Mode: Event={args.event}, LBCL={args.lbcl}, Set={args.set_num}")
+        print(f"   Hyperparams: LR={args.learning_rate}, BS={args.batch_size}, Eps={args.epochs}")
+
+        # Resolve paths
+        if get_paths:
+            paths = get_paths(args.event, args.lbcl, args.set_num)
+            # Use separate_event logic from runs? 
+            # get_paths returns: dev_path, test_path, joined_path, train_labeled_path, etc.
+            # We map these to args
+            args.dataset_path = paths["joined_path"]
+            args.train_path = paths["train_labeled_path"]
+            args.output_dir = paths["vmatch_out"].replace("vmatch", "sup_bert") + "_ft" # Separate output dir
+            
+            # Auto-set label columns if needed, though HumAID usually standard
+            # args.label_col is default "label" but run_humaid logic passes "class_label"?
+            # wait, run_humaid.py passes --label_col class_label
+            # We should probably force it or rely on user passing it in make_container args?
+            # Ideally we hardcode it for HumAID auto mode
+            args.label_col = "class_label"
+            
     os.makedirs(args.output_dir, exist_ok=True)
     set_seed(args.seed)
 
@@ -244,6 +298,14 @@ def main():
         summary_rows.append({"lr": lr, "epochs": ep, "batch_size": bs, **eval_out})
         if score > best_score:
             best_score, best_cfg = score, (lr, ep, bs)
+        
+        if wandb.run:
+            wandb.log({
+                "lr": lr, "epochs": ep, "batch_size": bs,
+                **eval_out,
+                "best_score_so_far": best_score
+            })
+
         trainer.save_model(f"{args.output_dir}/trial_lr{lr}_ep{ep}_bs{bs}")
 
     with open(os.path.join(args.output_dir, "grid_eval_summary.json"), "w", encoding="utf-8") as f:

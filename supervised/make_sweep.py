@@ -1,14 +1,14 @@
-import wandb, subprocess, copy, os
+import wandb, copy, os
 
 # ───────────────────────────────
 # Core sweep configuration
 # ───────────────────────────────
 BASE_SWEEP = {
-    "name": "humaid_ssl_sweep",
-    "program": "train.py",
+    "name": "humaid_supervised_sweep",
+    "program": "bert_ft.py",
     "method": "bayes",
     "metric": {
-        "name": "dev_macro-F1",   # your training script logs this at the end
+        "name": "eval_f1",   # bert_ft.py logs this key
         "goal": "maximize"
     },
     "parameters": {
@@ -18,45 +18,18 @@ BASE_SWEEP = {
             "min": 1e-6,
             "max": 1e-4
         },
-        "weight_decay": {
-            "values": [0.0, 1e-4, 1e-3, 1e-2]
+        "epochs": {
+            "distribution": "int_uniform",
+            "min": 3,
+            "max": 10
         },
         "batch_size": {
             "values": [8, 16, 32]
         },
-        "epochs": {
-            "distribution": "int_uniform",
-            "min": 12,
-            "max": 20
-        },
-
-        # === semi-supervised control ===
-        "T": {
-            "distribution": "uniform",
-            "min": 0.3,
-            "max": 0.7
-        },
-        "mixup_loss_weight": {
-            "distribution": "uniform",
-            "min": 0.5,
-            "max": 1.5
-        },
-
-        # === stability & regularization ===
-        "label_smoothing": {"values": [0.3]},
-        "max_grad_norm": {
-            "distribution": "uniform",
-            "min": 0.5,
-            "max": 2.0
-        },
-        # "th": REMOVED (Dead code, uses Oracle filtering)
-        "pseudo_label_by_normalized": {"values": [False]},
-        "unlabeled_batch_size": {"values": [32]},
 
         # === fixed metadata ===
-        "task": {"value": "HumAID"},
-        "model": {"value": "vinai/bertweet-base"},
-        "max_seq_length": {"value": 128},
+        "model_name": {"value": "vinai/bertweet-base"},
+        "max_length": {"value": 128},
         
         # placeholders to be overwritten
         "set_num": {"values": [1]},
@@ -98,19 +71,17 @@ for lbcl in LBCL_SIZES:
     for event in EVENTS:
         for set_num in SET_NUMS:
             sweep_cfg = copy.deepcopy(BASE_SWEEP)
-            sweep_cfg["name"] = f"{event}_{lbcl}lbcl_set{set_num}"
+            sweep_cfg["name"] = f"sup_{event}_{lbcl}lbcl_set{set_num}"
             sweep_cfg["description"] = (
-                f"Grid search for {event} ({lbcl}lbcl) set{set_num}"
+                f"Supervised HPO for {event} ({lbcl}lbcl) set{set_num}"
             )
             
             # Inject fixed values for this specific sweep
-            # Since it's a grid search for hyparams, these become single-value "grids"
-            # forcing this sweep to only run for this specific dataset configuration
             sweep_cfg["parameters"]["set_num"] = {"values": [set_num]}
             sweep_cfg["parameters"]["event"] = {"value": event}
             sweep_cfg["parameters"]["lbcl"] = {"value": lbcl}
 
-            project = f"humaid_vmatch_category_match_bayes"
+            project = f"humaid_supervised_hpo"
 
             sweep_id = wandb.sweep(sweep=sweep_cfg, project=project, entity=ENTITY)
             ids.append(sweep_id)
