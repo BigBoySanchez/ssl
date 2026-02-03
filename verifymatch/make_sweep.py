@@ -26,8 +26,8 @@ BASE_SWEEP = {
         },
         "epochs": {
             "distribution": "int_uniform",
-            "min": 1,
-            "max": 1
+            "min": 12,
+            "max": 20
         },
 
         # === semi-supervised control ===
