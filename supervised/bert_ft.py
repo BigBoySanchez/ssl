@@ -30,14 +30,37 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
 
 # ----------------------------- Metrics -----------------------------
+def expected_calibration_error(probs, labels, bins=10):
+    bin_boundaries = np.linspace(0, 1, bins + 1)
+    bin_lowers = bin_boundaries[:-1]
+    bin_uppers = bin_boundaries[1:]
+    
+    confidences = np.max(probs, axis=1)
+    predictions = np.argmax(probs, axis=1)
+    
+    ece = 0.0
+    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
+        in_bin = (confidences > bin_lower) & (confidences <= bin_upper)
+        prop_in_bin = np.mean(in_bin)
+        
+        if prop_in_bin > 0:
+            accuracy_in_bin = np.mean(predictions[in_bin] == labels[in_bin])
+            avg_confidence_in_bin = np.mean(confidences[in_bin])
+            ece += np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
+            
+    return ece
+
+
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
+    probs = torch.nn.functional.softmax(torch.tensor(logits), dim=-1).numpy()
     preds = np.argmax(logits, axis=-1)
     acc = accuracy_score(labels, preds)
     prec, rec, f1, _ = precision_recall_fscore_support(
         labels, preds, average="macro", zero_division=0
     )
-    return {"accuracy": acc, "precision": prec, "recall": rec, "f1": f1}
+    ece = expected_calibration_error(probs, labels)
+    return {"accuracy": acc, "precision": prec, "recall": rec, "f1": f1, "ece": ece}
 
 
 # ----------------------------- Utils -----------------------------
@@ -394,6 +417,30 @@ def main():
     test_pred_logits = trainer.predict(test_ds).predictions
     test_pred_ids = np.argmax(test_pred_logits, axis=-1)
     test_pred_names = [str(id2label[int(p)]) for p in test_pred_ids]
+
+    # Calculate and log Test Metrics
+    test_probs = torch.nn.functional.softmax(torch.tensor(test_pred_logits), dim=-1).numpy()
+    test_acc = accuracy_score(test_gold_ids, test_pred_ids)
+    _, _, test_f1, _ = precision_recall_fscore_support(
+        test_gold_ids, test_pred_ids, average="macro", zero_division=0
+    )
+    test_ece = expected_calibration_error(test_probs, np.array(test_gold_ids))
+    
+    print(f"[test] accuracy={test_acc:.4f} macro_f1={test_f1:.4f} ece={test_ece:.4f}")
+    
+    test_metrics = {
+        "test_accuracy": test_acc,
+        "test_macro_f1": test_f1,
+        "test_ece": test_ece
+    }
+    
+    # Log to WandB if active
+    if wandb.run:
+        wandb.log(test_metrics)
+        
+    # Save to JSON
+    with open(os.path.join(args.output_dir, "test_metrics.json"), "w", encoding="utf-8") as f:
+        json.dump(test_metrics, f, indent=2)
 
     csv_int = os.path.join(args.output_dir, "pred_bert_int.csv")
     with open(csv_int, "w", encoding="utf-8", newline="") as f:
