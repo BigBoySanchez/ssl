@@ -6,7 +6,7 @@
 #     --output_dir outputs\bert_supervised_min ^
 #     --text_col tweet_text --label_col label --id_col tweet_id
 
-import argparse, os, json, itertools, time, random, sys
+import argparse, os, json, itertools, time, random, sys, tempfile
 from typing import List, Dict, Optional
 
 # Add utils to path
@@ -243,12 +243,9 @@ def main():
     
     # Initialize WandB
     if args.event and args.lbcl and args.set_num:
+        run_name = f"{args.event}_{args.lbcl}_{args.set_num}_{int(time.time())}"
         # Auto-mode: use specific run name config
-        wandb.init(project=args.project_name, config=args, reinit=True)
-    # Initialize WandB
-    if args.event and args.lbcl and args.set_num:
-        # Auto-mode: use specific run name config
-        wandb.init(project=args.project_name, config=args, reinit=True)
+        wandb.init(project=args.project_name, name=run_name, config=args, reinit=True)
         # Allow wandb sweep to override these, OR command line args
         # Prioritize: 1. CLI arg 2. WandB config 3. First item of list default
         
@@ -293,6 +290,12 @@ def main():
 
     if not args.dataset_path or not args.output_dir:
         raise ValueError("Must provide either --dataset_path and --output_dir OR (--event, --lbcl, --set_num) for auto-resolution.")
+
+    # Force output_dir to be a temporary directory to save NOTHING locally
+    temp_dir_obj = tempfile.TemporaryDirectory()
+    original_output_dir = args.output_dir
+    args.output_dir = temp_dir_obj.name
+    print(f"   [System] Output Dir redirected to Temp Dir: {args.output_dir} (was {original_output_dir})")
 
     os.makedirs(args.output_dir, exist_ok=True)
     set_seed(args.seed)
@@ -386,7 +389,7 @@ def main():
                 "best_score_so_far": best_score
             })
 
-        trainer.save_model(f"{args.output_dir}/trial_lr{lr}_ep{ep}_bs{bs}")
+        # trainer.save_model(f"{args.output_dir}/trial_lr{lr}_ep{ep}_bs{bs}")
 
     with open(os.path.join(args.output_dir, "grid_eval_summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary_rows, f, ensure_ascii=False, indent=2)
@@ -412,7 +415,7 @@ def main():
         tokenizer=tok, data_collator=collator
     )
     trainer.train()
-    trainer.save_model(f"{args.output_dir}/best")
+    # trainer.save_model(f"{args.output_dir}/best")
 
     test_pred_logits = trainer.predict(test_ds).predictions
     test_pred_ids = np.argmax(test_pred_logits, axis=-1)
@@ -460,6 +463,14 @@ def main():
 
     print(f"Wrote: {csv_int}")
     print(f"Wrote: {csv_str}")
+
+    if wandb.run:
+        artifact_name = f"preds-{wandb.run.id}"
+        artifact = wandb.Artifact(name=artifact_name, type="predictions")
+        artifact.add_file(csv_int)
+        artifact.add_file(csv_str)
+        wandb.log_artifact(artifact)
+        print("Logged prediction artifact to WandB.")
 
 
 if __name__ == "__main__":
