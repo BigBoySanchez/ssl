@@ -143,24 +143,40 @@ def format_csv(data, output_path):
     for lb in sorted(df["lbcl"].unique()):
         # F1 Row
         row_f1 = ["bertweet", f"{lb} lb/class", "Macro F1", ""]
+        f1_vals = []
         for event in all_events:
             for s in all_sets:
                 try:
                     val = pivot_f1.loc[lb, (event, s)]
                     row_f1.append(f"{val:.4f}")
+                    f1_vals.append(val)
                 except KeyError:
                     row_f1.append("")
+        
+        # Calculate Average
+        if f1_vals:
+            avg_f1 = sum(f1_vals) / len(f1_vals)
+            row_f1[3] = f"{avg_f1:.4f}"
+            
         final_rows.append(row_f1)
         
         # ECE Row
         row_ece = ["", "", "ECE", ""]
+        ece_vals = []
         for event in all_events:
             for s in all_sets:
                 try:
                     val = pivot_ece.loc[lb, (event, s)]
                     row_ece.append(f"{val:.4f}")
+                    ece_vals.append(val)
                 except KeyError:
                     row_ece.append("")
+        
+        # Calculate Average
+        if ece_vals:
+            avg_ece = sum(ece_vals) / len(ece_vals)
+            row_ece[3] = f"{avg_ece:.4f}"
+            
         final_rows.append(row_ece)
 
     with open(output_path, "w", encoding="utf-8") as f:

@@ -4,7 +4,7 @@ import wandb, subprocess, copy, os
 # Core sweep configuration
 # ───────────────────────────────
 BASE_SWEEP = {
-    "name": "humaid_vmatch_category_match_bayes2",
+    "name": "humaid_ssl_sweep",
     "program": "train.py",
     "method": "bayes",
     "metric": {
@@ -110,7 +110,7 @@ for lbcl in LBCL_SIZES:
             sweep_cfg["parameters"]["event"] = {"value": event}
             sweep_cfg["parameters"]["lbcl"] = {"value": lbcl}
 
-            project = f"humaid_vmatch_category_match_bayes"
+            project = f"humaid_vmatch_category_match_bayes2"
 
             sweep_id = wandb.sweep(sweep=sweep_cfg, project=project, entity=ENTITY)
             ids.append(sweep_id)
