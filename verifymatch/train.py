@@ -69,7 +69,7 @@ parser.add_argument('--output_path', type=str, help='model output path')
 parser.add_argument('--train_path', type=str, help='train dataset path')
 parser.add_argument('--dev_path', type=str, help='dev dataset path')
 parser.add_argument('--test_path', type=str, help='test dataset path')
-parser.add_argument('--epochs', type=int, default=3, help='number of epochs')
+parser.add_argument('--epochs', type=int, default=15, help='number of epochs (rec: 12-18)')
 parser.add_argument('--batch_size', type=int, default=32, help='batch size')
 parser.add_argument('--learning_rate', type=float, default=2e-5, help='learning rate')
 parser.add_argument('--weight_decay', type=float, default=0., help='weight decay')
@@ -349,18 +349,54 @@ class HumAIDProcessor:
 
     def load_samples(self, path):
         samples = []
-        ds = load_dataset("csv", data_files=path, split="train", delimiter="\t")
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                header = f.readline().strip().split('\t')
+                try:
+                    text_idx = header.index("tweet_text")
+                    id_idx = header.index("tweet_id") if "tweet_id" in header else -1
+                    label_idx = header.index("class_label") if "class_label" in header else -1
+                except ValueError:
+                    # If headers are missing standard names, fall back to pandas or just fail gracefully
+                    print(f"Warning: Could not find expected columns in {path}. Header: {header}")
+                    return []
 
-        for ex in ds:
-            try:
-                guid = ex["tweet_id"]
-                sentence1 = ex["tweet_text"]
-                label = ex["class_label"]
-                if self.valid_inputs(sentence1, label):
-                    label = int(self.label_map[label])
-                    samples.append((sentence1, label, guid))
-            except:
-                pass
+                num_cols = len(header)
+                
+                for line_num, line in enumerate(f, start=2):
+                    line = line.strip()
+                    if not line: continue
+                    
+                    parts = line.split('\t')
+                    
+                    # Handle malformed lines by merging excess into tweet_text
+                    if len(parts) > num_cols:
+                        excess = len(parts) - num_cols
+                        # The text content is spread from text_idx to text_idx + 1 + excess
+                        # We join them with a space (assuming the tab was a separator in the text)
+                        text_content = " ".join(parts[text_idx : text_idx + 1 + excess])
+                        
+                        # Reconstruct the parts list
+                        new_parts = parts[:text_idx] + [text_content] + parts[text_idx + 1 + excess:]
+                        parts = new_parts
+                    
+                    # Just in case it's still weird, skip if too short
+                    if len(parts) < num_cols:
+                        continue
+
+                    try:
+                        guid = parts[id_idx] if id_idx != -1 else ""
+                        sentence1 = parts[text_idx]
+                        label_str = parts[label_idx] if label_idx != -1 else None
+
+                        if self.valid_inputs(sentence1, label_str):
+                            label = int(self.label_map[label_str])
+                            samples.append((sentence1, label, guid))
+                    except Exception:
+                        continue
+
+        except Exception as e:
+            print(f"Error loading {path}: {e}")
 
         return samples
 
@@ -1426,6 +1462,10 @@ macro_f1_scores, acc_scores = [], []
 dev_f1_scores = []
 subrun_idx = 0
 
+# Accumulate all predictions for a single artifact
+all_predictions = []
+
+
 for set_num in set_nums:
     for seed in seeds:
         sub_run_start = time.time()
@@ -1554,27 +1594,20 @@ for set_num in set_nums:
         # Collect raw predictions (and confidence) for artifacting
         y_true, y_pred, y_conf, guids, texts = predict(test_dataset, return_probs=True)
 
-        preds_path = fr"{paths['vmatch_out']}/preds_set{set_num}_seed{seed}.jsonl"
-        with open(preds_path, "w") as f:
-            for yt, yp, cf, gid, txt in zip(y_true, y_pred, y_conf, guids, texts):
-                rec = {
-                    "guid": gid,
-                    "text": txt,
-                    "label": int(yt),
-                    "pred": int(yp),
-                    "conf": float(cf)
-                }
-                f.write(json.dumps(rec) + "\n")
+        for yt, yp, cf, gid, txt in zip(y_true, y_pred, y_conf, guids, texts):
+            all_predictions.append({
+                "set_num": set_num,
+                "seed": seed,
+                "guid": gid,
+                "text": txt,
+                "label": int(yt),
+                "pred": int(yp),
+                "conf": float(cf)
+            })
 
-        pred_art = wandb.Artifact(
-            f"preds-{args.task}-{event}-lb{lbcl}-set{set_num}-seed{seed}",
-            type="predictions",
-            metadata={"set_num": set_num, "seed": seed}
-        )
-        pred_art.add_file(preds_path, name="preds.jsonl")
-        wandb.log_artifact(pred_art)
+        # Preds saved to cumulative list, artifacting happens after loop
         if not args.keep_local_ckpt:
-            try: os.remove(preds_path)
+            try: os.remove(args.ckpt_path)
             except: pass
 
 
@@ -1611,8 +1644,38 @@ wandb.log({
     "dev_macro-F1_std": std_dev_f1
 })
 
-wandb.finish()
-
 print(f"\n=== Averaged Results ===")
 print(f"Mean F1: {mean_f1:.4f} ± {std_f1:.4f}")
 print(f"Mean Acc: {mean_acc:.4f}")
+
+# --- Save Consolidated Artifact ---
+if len(all_predictions) > 0:
+    # Save as JSONL
+    final_preds_path = fr"{paths['vmatch_out']}/all_preds.jsonl"
+    with open(final_preds_path, "w", encoding="utf-8") as f:
+        for p in all_predictions:
+            f.write(json.dumps(p) + "\n")
+            
+    # Save as CSV (optional, but often easier to read)
+    final_preds_csv = fr"{paths['vmatch_out']}/all_preds.csv"
+    try:
+        pd.DataFrame(all_predictions).to_csv(final_preds_csv, index=False)
+    except Exception as e:
+        print(f"Warning: Could not save CSV predictions: {e}")
+
+    print(f"Logging consolidated predictions artifact: {len(all_predictions)} rows.")
+    pred_art = wandb.Artifact(f"preds-{args.task}-{event}-lb{lbcl}-merged", type="predictions")
+    pred_art.add_file(final_preds_path, name="all_preds.jsonl")
+    if os.path.exists(final_preds_csv):
+        pred_art.add_file(final_preds_csv, name="all_preds.csv")
+    wandb.log_artifact(pred_art)
+    
+    # Cleanup
+    if not args.keep_local_ckpt:
+        try: 
+            os.remove(final_preds_path)
+            if os.path.exists(final_preds_csv):
+                os.remove(final_preds_csv)
+        except: pass
+
+wandb.finish()

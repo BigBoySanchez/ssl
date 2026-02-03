@@ -4,7 +4,7 @@ import wandb, subprocess, copy, os
 # Core sweep configuration
 # ───────────────────────────────
 BASE_SWEEP = {
-    "name": "humaid_ssl_sweep",
+    "name": "humaid_vmatch_category_match_bayes2",
     "program": "train.py",
     "method": "bayes",
     "metric": {
@@ -15,14 +15,14 @@ BASE_SWEEP = {
         # === optimization hyperparameters ===
         "learning_rate": {
             "distribution": "log_uniform_values",
-            "min": 1e-6,
-            "max": 1e-4
+            "min": 1e-5,
+            "max": 4e-5
         },
         "weight_decay": {
-            "values": [0.0, 1e-4, 1e-3, 1e-2]
+            "values": [0.0, 1e-2]
         },
         "batch_size": {
-            "values": [8, 16, 32]
+            "values": [16, 32]
         },
         "epochs": {
             "distribution": "int_uniform",
@@ -34,7 +34,7 @@ BASE_SWEEP = {
         "T": {
             "distribution": "uniform",
             "min": 0.3,
-            "max": 0.7
+            "max": 0.6
         },
         "mixup_loss_weight": {
             "distribution": "uniform",

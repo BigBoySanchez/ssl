@@ -1,71 +1,184 @@
 """
-Given a bertweet output folder, find F1 for each run and print a table with:
-- rows = event
-- columns = {lb/cl}_{set_num}
-
-Folder naming pattern assumption:
-  <prefix1>_<prefix2>_<prefix3>_<event_part1>_..._<event_partN>_<lbcl>_<setnum>
-  (i.e. event = tokens[3:-2])
-
-Each run folder contains best_cfg.txt with a line like: f1=0.8421
+Given a WandB project, find the best run (by eval_f1) for each Sweep (representing a configuration)
+and generate a CSV report with Test results (Macro F1, ECE).
 """
 
-import os
-import re
+import argparse
 import sys
-from collections import defaultdict
+import pandas as pd
+import wandb
 
-def find_best_cfg_scores(base_dir):
-    f1_pat = re.compile(r"f1\s*=\s*([0-9]*\.?[0-9]+)")
-    table = defaultdict(dict)
-    all_cols = set()
+def prettify_event(event_str):
+    if not event_str: return "Unknown"
+    # standard: "california_wildfires_2018" -> "California Wildfires 2018"
+    return event_str.replace("_", " ").title()
 
-    for root, _, files in os.walk(base_dir):
-        if "best_cfg.txt" not in files:
+def fetch_wandb_sweeps_results(project_name):
+    print(f"Fetching sweeps from WandB project: {project_name}...")
+    api = wandb.Api()
+    
+    try:
+        sweeps = api.project(project_name).sweeps()
+    except Exception as e:
+        print(f"Error accessing WandB project '{project_name}': {e}")
+        return []
+
+    data = []
+    print(f"Found {len(sweeps)} sweeps. Processing...")
+    
+    for i, sweep in enumerate(sweeps):
+        print(f"Processing sweep {i+1}/{len(sweeps)}: {sweep.name}...", end="\r")
+        
+        # Get all finished runs in this sweep
+        runs = sweep.runs
+        finished = [r for r in runs if r.state == "finished"]
+        
+        if not finished:
             continue
-
-        subfolder = os.path.basename(root)
-        parts = subfolder.split("_")
-
-        # event = tokens[3:-2] (joined by '_')
-        event_tokens = parts[3:-2]
-        event = "_".join(event_tokens) if event_tokens else "(unknown)"
-
-        lbcl = parts[-2] if len(parts) >= 2 else "(unknown)"
-        set_num = parts[-1] if len(parts) >= 1 else "(unknown)"
-        col_key = f"{lbcl}_{set_num}"
-
-        best_cfg_path = os.path.join(root, "best_cfg.txt")
-        try:
-            with open(best_cfg_path, "r", encoding="utf-8") as f:
-                text = f.read()
-            m = f1_pat.search(text)
-            if not m:
+            
+        # We need to identify Event, LBCL, Set from the sweep or its runs.
+        # Assuming all runs in a sweep belong to the same Event/LBCL/Set.
+        # We can peek at the first run's config (or the sweep config if available/consistent).
+        # Sweep name might also contain info, but config is safer.
+        
+        sample_run = finished[0]
+        cfg = sample_run.config
+        event = cfg.get("event")
+        lbcl = cfg.get("lbcl")
+        set_num = cfg.get("set_num")
+        
+        if not (event and lbcl and set_num):
+            # Try to parse from sweep name if config is missing? 
+            # Pattern: event_lbcl_setnum_timestamp
+            # But let's rely on config first.
+            continue
+            
+        # Find best run in this sweep
+        best_run = None
+        best_score = -1.0
+        
+        for r in finished:
+            summary = r.summary
+            # Metric: eval_f1. 'best_score_so_far' is what we want.
+            s = summary.get("best_score_so_far")
+            if s is None:
+                s = summary.get("eval_f1", 0.0)
+            
+            s = float(s)
+            
+            # Check if this run has test results!
+            if summary.get("test_macro_f1") is None:
                 continue
-            f1 = float(m.group(1))
-            table[event][col_key] = f1
-            all_cols.add(col_key)
-        except Exception as e:
-            print(f"Warning: failed reading {best_cfg_path}: {e}", file=sys.stderr)
+                
+            if s > best_score:
+                best_score = s
+                best_run = r
+        
+        if best_run:
+            summ = best_run.summary
+            data.append({
+                "sweep_id": sweep.id,
+                "sweep_name": sweep.name,
+                "best_run_id": best_run.id,
+                "event": event,
+                "lbcl": int(lbcl),
+                "set_num": int(set_num),
+                "eval_f1": best_score,
+                "test_f1": float(summ.get("test_macro_f1", 0.0)),
+                "test_ece": float(summ.get("test_ece", 0.0))
+            })
 
-    return table, sorted(all_cols)
+    print("\n")
+    print(f"Extracted best runs from {len(data)} valid sweeps.")
+    return data
 
-def save_table_as_csv(table, columns, output_path):
-    import pandas as pd
+def format_csv(data, output_path):
+    if not data:
+        print("No data to save.")
+        return
 
-    df = pd.DataFrame.from_dict(table, orient="index")
-    df = df.reindex(columns=columns)  # ensure consistent column order
-    df.index.name = "Event"
-    df.to_csv(output_path)
-    print(f"Saved table to {output_path}")
+    df = pd.DataFrame(data)
+    
+    # 1. Prettify Event Names
+    df["Event Name"] = df["event"].apply(prettify_event)
+    df["Set"] = "Set " + df["set_num"].astype(str)
+    
+    # Check for duplicates? (Multiple sweeps for same condition?)
+    # If duplicates, pick best eval_f1
+    df = df.sort_values(by="eval_f1", ascending=False)
+    df = df.drop_duplicates(subset=["event", "lbcl", "set_num"], keep="first")
+    
+    # 2. Pivot for F1
+    pivot_f1 = df.pivot_table(
+        index=["lbcl"], 
+        columns=["Event Name", "Set"], 
+        values="test_f1"
+    )
+    
+    # 3. Pivot for ECE
+    pivot_ece = df.pivot_table(
+        index=["lbcl"], 
+        columns=["Event Name", "Set"], 
+        values="test_ece"
+    )
+    
+    all_events = sorted(df["Event Name"].unique())
+    all_sets = ["Set 1", "Set 2", "Set 3"] # Fixed set ordering usually desired
+    
+    # Prepare data rows
+    final_rows = []
+    
+    # Header construction
+    header_events = ["", "", "Metrics/Event Name", "Average"]
+    header_sets = ["", "", "", ""]
+    
+    # Ensure all events are columns even if missing data? Only present ones.
+    
+    for event in all_events:
+        header_events.append(event)
+        header_events.extend([""] * (len(all_sets) - 1))
+        for s in all_sets:
+            header_sets.append(s)
+
+    for lb in sorted(df["lbcl"].unique()):
+        # F1 Row
+        row_f1 = ["bertweet", f"{lb} lb/class", "Macro F1", ""]
+        for event in all_events:
+            for s in all_sets:
+                try:
+                    val = pivot_f1.loc[lb, (event, s)]
+                    row_f1.append(f"{val:.4f}")
+                except KeyError:
+                    row_f1.append("")
+        final_rows.append(row_f1)
+        
+        # ECE Row
+        row_ece = ["", "", "ECE", ""]
+        for event in all_events:
+            for s in all_sets:
+                try:
+                    val = pivot_ece.loc[lb, (event, s)]
+                    row_ece.append(f"{val:.4f}")
+                except KeyError:
+                    row_ece.append("")
+        final_rows.append(row_ece)
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(",".join(header_events) + "\n")
+        f.write(",".join(header_sets) + "\n")
+        for r in final_rows:
+            f.write(",".join(r) + "\n")
+            
+    print(f"Saved formatted CSV to {output_path}")
 
 def main():
-    base_dir = r"..\artifacts\humaid\bertweet5"  # adjust as needed
-    table, columns = find_best_cfg_scores(base_dir)
-    if not table:
-        print("No F1 scores found.")
-        return
-    save_table_as_csv(table, columns, "bertweet_f1_summary.csv")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--project", default="humaid_supervised_hpo", help="WandB project name")
+    parser.add_argument("--output", default="bertweet_results.csv", help="Output CSV path")
+    args = parser.parse_args()
+    
+    data = fetch_wandb_sweeps_results(args.project)
+    format_csv(data, args.output)
 
 if __name__ == "__main__":
     main()
