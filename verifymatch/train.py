@@ -380,9 +380,18 @@ class HumAIDProcessor:
                         new_parts = parts[:text_idx] + [text_content] + parts[text_idx + 1 + excess:]
                         parts = new_parts
                     
-                    # Just in case it's still weird, skip if too short
-                    if len(parts) < num_cols:
+                    # Just in case it's still weird, check if we have enough parts for the required indices
+                    # We only strictly require text and label (if label is needed)
+                    required_indices = [i for i in [text_idx, label_idx, id_idx] if i != -1]
+                    if not required_indices:
                         continue
+                        
+                    max_req_idx = max(required_indices)
+                    if len(parts) <= max_req_idx:
+                        # Not enough columns to reach the data we need
+                        continue
+                        
+                    # (Removed strict len(parts) < num_cols check to allow lines with missing trailing/optional columns)
 
                     try:
                         guid = parts[id_idx] if id_idx != -1 else ""
@@ -1463,7 +1472,7 @@ dev_f1_scores = []
 subrun_idx = 0
 
 # Accumulate all predictions for a single artifact
-all_predictions = []
+
 
 
 for set_num in set_nums:
@@ -1594,8 +1603,9 @@ for set_num in set_nums:
         # Collect raw predictions (and confidence) for artifacting
         y_true, y_pred, y_conf, guids, texts = predict(test_dataset, return_probs=True)
 
+        run_predictions = []
         for yt, yp, cf, gid, txt in zip(y_true, y_pred, y_conf, guids, texts):
-            all_predictions.append({
+            run_predictions.append({
                 "set_num": set_num,
                 "seed": seed,
                 "guid": gid,
@@ -1604,6 +1614,36 @@ for set_num in set_nums:
                 "pred": int(yp),
                 "conf": float(cf)
             })
+
+        # --- Save Run Artifact ---
+        if len(run_predictions) > 0:
+            # Save as JSONL
+            preds_path_json = fr"{paths['vmatch_out']}/preds_set{set_num}_seed{seed}.jsonl"
+            with open(preds_path_json, "w", encoding="utf-8") as f:
+                for p in run_predictions:
+                    f.write(json.dumps(p) + "\n")
+            
+            # Save as CSV
+            preds_path_csv = fr"{paths['vmatch_out']}/preds_set{set_num}_seed{seed}.csv"
+            try:
+                pd.DataFrame(run_predictions).to_csv(preds_path_csv, index=False)
+            except Exception as e:
+                print(f"Warning: Could not save CSV predictions: {e}")
+
+            print(f"Logging predictions artifact: {len(run_predictions)} rows.")
+            pred_art = wandb.Artifact(f"preds-{args.task}-{event}-lb{lbcl}-set{set_num}-seed{seed}", type="predictions")
+            pred_art.add_file(preds_path_json, name="preds.jsonl")
+            if os.path.exists(preds_path_csv):
+                pred_art.add_file(preds_path_csv, name="preds.csv")
+            wandb.log_artifact(pred_art)
+            
+            # Cleanup
+            if not args.keep_local_ckpt:
+                try: 
+                    os.remove(preds_path_json)
+                    if os.path.exists(preds_path_csv):
+                        os.remove(preds_path_csv)
+                except: pass
 
         # Preds saved to cumulative list, artifacting happens after loop
         if not args.keep_local_ckpt:
@@ -1648,34 +1688,6 @@ print(f"\n=== Averaged Results ===")
 print(f"Mean F1: {mean_f1:.4f} ± {std_f1:.4f}")
 print(f"Mean Acc: {mean_acc:.4f}")
 
-# --- Save Consolidated Artifact ---
-if len(all_predictions) > 0:
-    # Save as JSONL
-    final_preds_path = fr"{paths['vmatch_out']}/all_preds.jsonl"
-    with open(final_preds_path, "w", encoding="utf-8") as f:
-        for p in all_predictions:
-            f.write(json.dumps(p) + "\n")
-            
-    # Save as CSV (optional, but often easier to read)
-    final_preds_csv = fr"{paths['vmatch_out']}/all_preds.csv"
-    try:
-        pd.DataFrame(all_predictions).to_csv(final_preds_csv, index=False)
-    except Exception as e:
-        print(f"Warning: Could not save CSV predictions: {e}")
 
-    print(f"Logging consolidated predictions artifact: {len(all_predictions)} rows.")
-    pred_art = wandb.Artifact(f"preds-{args.task}-{event}-lb{lbcl}-merged", type="predictions")
-    pred_art.add_file(final_preds_path, name="all_preds.jsonl")
-    if os.path.exists(final_preds_csv):
-        pred_art.add_file(final_preds_csv, name="all_preds.csv")
-    wandb.log_artifact(pred_art)
-    
-    # Cleanup
-    if not args.keep_local_ckpt:
-        try: 
-            os.remove(final_preds_path)
-            if os.path.exists(final_preds_csv):
-                os.remove(final_preds_csv)
-        except: pass
 
 wandb.finish()
