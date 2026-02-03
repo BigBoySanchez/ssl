@@ -100,6 +100,7 @@ parser.add_argument('--event', type=str, required=True, help='event name')
 parser.add_argument('--lbcl', type=str, required=True, help='label count')
 parser.add_argument('--keep_local_ckpt', action='store_true',
                     help="Keep local .pt files after logging artifacts (default: delete after upload).")
+parser.add_argument('--patience', type=int, default=5, help='early stopping patience')
 args = parser.parse_args()
 
 def random_init(seed):
@@ -1534,6 +1535,7 @@ for set_num in set_nums:
         # === Training loop ===
         best_dev_f1 = -float('inf')
         best_epoch = -1
+        patience_counter = 0
         for epoch in range(1, args.epochs + 1):
             start_time = time.time()
 
@@ -1551,6 +1553,12 @@ for set_num in set_nums:
                 best_dev_f1 = eval_f1
                 best_epoch = epoch
                 torch.save(model.state_dict(), args.ckpt_path)
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                if patience_counter >= args.patience:
+                    print(f"Early stopping triggered at epoch {epoch}")
+                    break
 
             # Uncomment for full artifact control
             # if args.artifact_mode in ('periodic','all'):

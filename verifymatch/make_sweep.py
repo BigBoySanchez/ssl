@@ -110,7 +110,7 @@ for lbcl in LBCL_SIZES:
             sweep_cfg["parameters"]["event"] = {"value": event}
             sweep_cfg["parameters"]["lbcl"] = {"value": lbcl}
 
-            project = f"humaid_vmatch_category_match_bayes2"
+            project = f"humaid_vmatch_category_match_es"
 
             sweep_id = wandb.sweep(sweep=sweep_cfg, project=project, entity=ENTITY)
             ids.append(sweep_id)
