@@ -20,8 +20,8 @@ BASE_SWEEP = {
         },
         "epochs": {
             "distribution": "int_uniform",
-            "min": 3,
-            "max": 10
+            "min": 12,
+            "max": 20
         },
         "batch_size": {
             "values": [8, 16, 32]
