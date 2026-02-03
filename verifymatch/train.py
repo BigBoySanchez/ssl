@@ -1405,6 +1405,13 @@ def predict(dataset, return_probs=True):
 
             # collect text (you packaged each example text as a 1-element list)
             batch_texts = inputs[4] if len(inputs) > 4 else [""] * logits.size(0)
+            
+            # Fix for DataLoader collation of list-wrapped strings:
+            # The loader returns [('t1', 't2', ...)] or [['t1', 't2', ...]] (len=1)
+            # We must unpack this to iterate over the actual strings.
+            if isinstance(batch_texts, list) and len(batch_texts) == 1 and isinstance(batch_texts[0], (list, tuple)):
+                batch_texts = batch_texts[0]
+
             flat_texts = []
             for t in batch_texts:
                 if isinstance(t, list) and len(t) > 0:

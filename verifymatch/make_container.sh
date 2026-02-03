@@ -7,7 +7,7 @@ set -euo pipefail
 ENTITY="jacoba-california-state-university-east-bay"
 PROJECT="humaid_vmatch_category_match_bayes2"
 IMAGE="cahsi/disaster-ssl:cuda12-py2.2"
-MAX_GPUS=6
+MAX_GPUS=7
 SWEEP_ID_FILE="sweep_ids.txt"   # one sweep ID per line
 INCREMENT=1                     # stride over (event×lbcl) combos
 START_OFFSET=0                  # start combo index (0-based) before stride
@@ -78,7 +78,7 @@ launch_agent() {
       bash -c '
         cd /workspace/ssl/verifymatch && \
         echo "[Agent '${gpu_id}'] Running sweep '${sweep_id}' ('${event}' '${lbcl}'lbcl set'${set_num}')" && \
-        wandb agent --count 25 '${ENTITY}'/'${PROJECT}'/'${sweep_id}' && \
+        wandb agent --count 10 '${ENTITY}'/'${PROJECT}'/'${sweep_id}' && \
         echo "[Agent '${gpu_id}'] Sweep '${sweep_id}' finished."
     '
 }
