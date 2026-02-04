@@ -82,7 +82,7 @@ def separate_event(event, tsv_file, outfile_name):
     os.makedirs("temp", exist_ok=True)
 
     # Build output path safely
-    output_path = os.path.join("temp", f"{outfile_name}.tsv")
+    output_path = os.path.join("temp", f"{event}_{outfile_name}.tsv")
 
     # Check if the input file exists
     if not os.path.exists(tsv_file):
@@ -114,7 +114,7 @@ def separate_event_folder(event, tsv_folder, outfile_name):
         ./temp/{event}_{outfile_name}/{original_filename}.tsv
     """
     # Create output folder safely
-    out_folder = os.path.join("temp", f"{outfile_name}")
+    out_folder = os.path.join("temp", f"{event}_{outfile_name}")
     os.makedirs(out_folder, exist_ok=True)
 
     # Process each split file
