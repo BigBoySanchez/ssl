@@ -355,7 +355,7 @@ def format_csv(data, output_path):
 def main():
     parser = argparse.ArgumentParser()
     # Updated default project name to match the implementation plan
-    parser.add_argument("--project", default="humaid_vmatch_category_match_es", help="WandB project name")
+    parser.add_argument("--project", default="humaid_vmatch_category_match_es2", help="WandB project name")
     parser.add_argument("--entity", default=None, help="WandB entity")
     parser.add_argument("--output", default="verifymatch_results.csv", help="Output CSV path")
     args = parser.parse_args()
