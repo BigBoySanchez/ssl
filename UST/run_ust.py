@@ -106,6 +106,7 @@ if __name__ == '__main__':
 	parser.add_argument("--dense_dropout", nargs="?", type=float, default=0.5, help="dropout probability for final layers of teacher model")
 	parser.add_argument("--temp_scaling", nargs="?", type=bool, default=False, help="temp scaling" )
 	parser.add_argument("--label_smoothing", nargs="?", type=float, default=0.0, help="label smoothing factor")
+	parser.add_argument("--hf_token", nargs="?", default=None, help="Hugging Face access token")
 
 	args = vars(parser.parse_args())
 	logger.info(args)
@@ -243,11 +244,11 @@ if __name__ == '__main__':
 	learning_rate = args["learning_rate"]
 
 
-	cfg = AutoConfig.from_pretrained(pt_teacher_checkpoint)
+	cfg = AutoConfig.from_pretrained(pt_teacher_checkpoint, token=args.get("hf_token"))
 	cfg.hidden_dropout_prob = hidden_dropout_prob
 	cfg.attention_probs_dropout_prob = attention_probs_dropout_prob
 
-	tokenizer = AutoTokenizer.from_pretrained(pt_teacher_checkpoint)
+	tokenizer = AutoTokenizer.from_pretrained(pt_teacher_checkpoint, token=args.get("hf_token"))
     
 
 	# Override get_dataset to handle filtering if using HPO paths
@@ -316,5 +317,5 @@ if __name__ == '__main__':
 
 	train_model(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, cfg, model_dir, sup_batch_size=sup_batch_size, unsup_batch_size=unsup_batch_size, unsup_size=unsup_size, sample_size=sample_size,
 	            sample_scheme=sample_scheme, T=T, alpha=alpha, sup_epochs=sup_epochs, unsup_epochs=unsup_epochs, N_base=N_base, dense_dropout=dense_dropout, attention_probs_dropout_prob=attention_probs_dropout_prob, hidden_dropout_prob=hidden_dropout_prob,
-				results_file=results_file_name, temp_scaling = temp_scaling, ls=label_smoothing, n_classes=len(label_to_id.keys()), learning_rate=learning_rate, run_name=run_name)
+				results_file=results_file_name, temp_scaling = temp_scaling, ls=label_smoothing, n_classes=len(label_to_id.keys()), learning_rate=learning_rate, run_name=run_name, token=args.get("hf_token"))
 

@@ -42,9 +42,9 @@ def multigpu(model):
     return model 
 
 class BertModel(torch.nn.Module):
-    def __init__(self, checkpoint, num_labels=10):
+    def __init__(self, checkpoint, num_labels=10, token=None):
         super().__init__()
-        self.model = AutoModelForSequenceClassification.from_pretrained(checkpoint, num_labels=num_labels)
+        self.model = AutoModelForSequenceClassification.from_pretrained(checkpoint, num_labels=num_labels, token=token)
         #self.model.classifier.dropout.p = 0.5
         self.T = torch.nn.Parameter(torch.ones(1) * 1.0)
 
@@ -76,11 +76,11 @@ def create_learning_rate_scheduler(max_learn_rate=5e-5,
     return learning_rate_scheduler
 
 
-def mc_dropout_evaluate(model_dir, n_classes, pt_teacher_checkpoint, X_new_unlabeled_dataset, cfg, linear_dropout=0.5, T=30):
+def mc_dropout_evaluate(model_dir, n_classes, pt_teacher_checkpoint, X_new_unlabeled_dataset, cfg, linear_dropout=0.5, T=30, token=None):
 
     cfg.return_dict = True
 
-    model = BertModel(pt_teacher_checkpoint, num_labels=n_classes)
+    model = BertModel(pt_teacher_checkpoint, num_labels=n_classes, token=token)
     state_dict = torch.load("data/" + model_dir + "/pytorch_model.bin")
     model.load_state_dict(state_dict)
     model.to(device)
@@ -167,7 +167,7 @@ def evaluate(model, n_classes, test_dataloader, criterion, batch_size, temp_scal
 
 def	train_model(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, cfg, model_dir, sup_batch_size=16, unsup_batch_size=64, unsup_size=4096, sample_size=16384,
 	            sample_scheme='easy_bald_class_conf', T=30, alpha=0.1, sup_epochs=20, unsup_epochs=25, N_base=10, dense_dropout=0.5, attention_probs_dropout_prob=0.3, hidden_dropout_prob=0.3,
-                results_file="", temp_scaling=False, ls=0.0, n_classes=10, learning_rate=5e-5, run_name="ust_experiment"):
+                results_file="", temp_scaling=False, ls=0.0, n_classes=10, learning_rate=5e-5, run_name="ust_experiment", token=None):
 
     start_time = time.time()
     patience = 5
@@ -249,7 +249,7 @@ def	train_model(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, 
 
     cfg.return_dict = True
 
-    best_model = BertModel(pt_teacher_checkpoint, num_labels=n_classes)
+    best_model = BertModel(pt_teacher_checkpoint, num_labels=n_classes, token=token)
     best_model.to(device)
     state_dict = torch.load("data/" + model_dir + "/pytorch_model.bin")
     best_model.load_state_dict(state_dict)
@@ -268,7 +268,7 @@ def	train_model(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, 
         if 'uni' in sample_scheme:
             y_mean, y_var, y_T = None, None, None
         elif 'bald' in sample_scheme:
-            y_mean, y_var, y_pred, y_T = mc_dropout_evaluate(model_dir, n_classes, pt_teacher_checkpoint, X_new_unlabeled_dataset, cfg, dense_dropout, T=T)
+            y_mean, y_var, y_pred, y_T = mc_dropout_evaluate(model_dir, n_classes, pt_teacher_checkpoint, X_new_unlabeled_dataset, cfg, dense_dropout, T=T, token=token)
         else:
             logger.info ("Error in specifying sample_scheme: One of the 'uni' or 'bald' schemes need to be specified")
             exit(0)
@@ -276,7 +276,7 @@ def	train_model(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, 
         if 'soft' not in sample_scheme:
             copy_cfg.return_dict = True
             # model = AutoModelForSequenceClassification.from_pretrained(model_dir+"/ust", config=copy_cfg)
-            model = BertModel(pt_teacher_checkpoint, num_labels=n_classes)
+            model = BertModel(pt_teacher_checkpoint, num_labels=n_classes, token=token)
             state_dict = torch.load("data/" + model_dir + "/pytorch_model.bin")
             model.load_state_dict(state_dict)
             model.to(device)
