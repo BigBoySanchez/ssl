@@ -302,7 +302,7 @@ if __name__ == '__main__':
 		ds_dev = get_dataset_smart(dev_path, tokenizer, labeled=True, filter_event=disaster_name)
 		ds_test = get_dataset_smart(test_path, tokenizer, labeled=True, filter_event=disaster_name)
 
-		logger.info(f"Loaded train set size: {len(ds_train)}")
+		logger.info(f"Loaded labeled set size: {len(ds_train)}")
 		logger.info(f"Loaded unlabeled set size: {len(ds_unlabeled)}")
 		logger.info(f"Loaded dev set size: {len(ds_dev)}")
 		logger.info(f"Loaded test set size: {len(ds_test)}")

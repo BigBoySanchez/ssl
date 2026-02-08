@@ -110,7 +110,7 @@ def mc_dropout_evaluate(model_dir, n_classes, pt_teacher_checkpoint, X_new_unlab
 
     #compute mean
     y_mean = np.mean(y_T, axis=0)
-    assert y_mean.shape == (len(X_new_unlabeled_dataset), 10)
+    assert y_mean.shape == (len(X_new_unlabeled_dataset), n_classes)
 
     #compute majority prediction
     y_pred = np.array([np.argmax(np.bincount(row)) for row in np.transpose(np.argmax(y_T, axis=-1))])
@@ -118,7 +118,7 @@ def mc_dropout_evaluate(model_dir, n_classes, pt_teacher_checkpoint, X_new_unlab
 
     #compute variance
     y_var = np.var(y_T, axis=0)
-    assert y_var.shape == (len(X_new_unlabeled_dataset), 10)
+    assert y_var.shape == (len(X_new_unlabeled_dataset), n_classes)
 
     return y_mean, y_var, y_pred, y_T
 
