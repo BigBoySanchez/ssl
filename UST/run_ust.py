@@ -176,7 +176,10 @@ if __name__ == '__main__':
 	unsup_batch_size = args["unsup_batch_size"]
 	unsup_size = args["unsup_size"]
 	sample_size = args["sample_size"]
-	model_dir = disaster_name
+	if use_hpo_paths:
+		model_dir = run_name
+	else:
+		model_dir = disaster_name
 	aum_save_dir = args["aum_save_dir"]
 	sample_scheme = args["sample_scheme"]
 	# sup_labels = args["sup_labels"]

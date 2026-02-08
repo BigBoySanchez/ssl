@@ -229,6 +229,9 @@ def	train_model(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, 
                     crt_patience = 0
                     best_f1 = f1_macro_validation
                     if best_f1 > best_f1_overall:
+                        # Ensure directory exists
+                        if not os.path.exists("data/" + model_dir):
+                            os.makedirs("data/" + model_dir)
                         #model.save_pretrained(model_dir+"/ust")
                         torch.save(model.state_dict(), "data/" + model_dir + "/pytorch_model.bin")
                         best_f1_overall = best_f1
@@ -500,22 +503,58 @@ def	train_model(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, 
     
     # Save to CSV
     # Ensure directory exists
-    artifact_dir = f"data/{model_dir}/artifacts"
-    os.makedirs(artifact_dir, exist_ok=True)
-    pred_file = f"{artifact_dir}/{run_name}.csv"
+    # artifact_dir = f"data/{model_dir}/artifacts"
+    # os.makedirs(artifact_dir, exist_ok=True)
+    # pred_file = f"{artifact_dir}/{run_name}.csv"
     
-    df_preds = pd.DataFrame({
-        "id": all_ids,
-        "gold": all_golds,
-        "pred": all_preds
-    })
-    df_preds.to_csv(pred_file, index=False)
-    logger.info(f"Saved predictions to {pred_file}")
+    # df_preds = pd.DataFrame({
+    #     "id": all_ids,
+    #     "gold": all_golds,
+    #     "pred": all_preds
+    # })
+    # df_preds.to_csv(pred_file, index=False)
+    # logger.info(f"Saved predictions to {pred_file}")
     
     if wandb.run:
+        # Create a temporary file for the artifact
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp:
+             df_preds = pd.DataFrame({
+                "id": all_ids,
+                "gold": all_golds,
+                "pred": all_preds
+            })
+             df_preds.to_csv(tmp.name, index=False)
+             pred_file = tmp.name
+
         artifact = wandb.Artifact(name=f"{run_name}-preds", type="predictions")
-        artifact.add_file(pred_file)
+        artifact.add_file(pred_file, name=f"{run_name}.csv") # naming it explicitly in artifact
         wandb.log_artifact(artifact)
+        
+        # Clean up temp file
+        os.remove(pred_file)
+
+    # ---------------------------
+    # cleanup: Remove local files
+    # ---------------------------
+    try:
+        model_path = "data/" + model_dir + "/pytorch_model.bin"
+        if os.path.exists(model_path):
+            os.remove(model_path)
+            
+        results_path = "data/" + model_dir +"/"+ results_file + '.txt'
+        if os.path.exists(results_path):
+            os.remove(results_path)
+            
+        # If model_dir was created just for this run (HPO), we might want to remove it if empty
+        # But checking if it is empty is tricky if logs are there. 
+        # For HPO run_name based dirs, it should be safe if we are sure only we used it.
+        # But let's just delete the files we know we created for now to be safe.
+        
+        logger.info("Cleaned up local model and results files.")
+        
+    except Exception as e:
+        logger.warning(f"Failed to clean up local files: {e}")
 
 
 
