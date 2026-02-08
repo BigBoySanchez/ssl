@@ -68,7 +68,7 @@ def sample_by_bald_class_easiness(X_new_unlabeled_dataset, y_mean, y_var, y_pred
 		p_norm = BALD_acq[y_pred==label]
 		p_norm = np.maximum(np.zeros(len(p_norm)), p_norm)
 		p_norm = p_norm/np.sum(p_norm)
-		pool_of_idx = np.array(X_new_unlabeled_dataset.idxes)[y_pred == label]
+		pool_of_idx = np.arange(len(X_new_unlabeled_dataset))[y_pred == label]
 		if len(pool_of_idx) ==0:
 			continue
 		if len(pool_of_idx) < samples_per_class:
