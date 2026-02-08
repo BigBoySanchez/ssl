@@ -20,7 +20,7 @@ import wandb
 logger = logging.getLogger('UST')
 logging.basicConfig(level = logging.INFO)
 
-GLOBAL_SEED = int(os.getenv("PYTHONHASHSEED"))
+GLOBAL_SEED = 67
 logger.info ("Global seed {}".format(GLOBAL_SEED))
 
 # label map for disaster with 10 class 
