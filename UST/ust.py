@@ -32,7 +32,7 @@ import wandb
 
 logger = logging.getLogger('UST')
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #device = "cpu"
 print("The device is : ", device)
