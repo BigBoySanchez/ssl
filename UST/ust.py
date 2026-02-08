@@ -499,7 +499,7 @@ def	train_model(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, 
             
     # IDs
     # ds_test.ids_list should correspond to the order
-    all_ids = ds_test.ids_list
+    all_ids = ds_test.idxes
     
     # Save to CSV
     # Ensure directory exists
