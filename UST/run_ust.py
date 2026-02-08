@@ -106,7 +106,7 @@ if __name__ == '__main__':
 	parser.add_argument("--dense_dropout", nargs="?", type=float, default=0.5, help="dropout probability for final layers of teacher model")
 	parser.add_argument("--temp_scaling", nargs="?", type=bool, default=False, help="temp scaling" )
 	parser.add_argument("--label_smoothing", nargs="?", type=float, default=0.0, help="label smoothing factor")
-	parser.add_argument("--hf_token", nargs="?", default=None, help="Hugging Face access token")
+	parser.add_argument("--hf_token", nargs="?", default=os.environ.get("HF_TOKEN"), help="Hugging Face access token")
 
 	args = vars(parser.parse_args())
 	logger.info(args)

@@ -69,9 +69,9 @@ launch_agent() {
     echo "🚀 Launching ${cname} → ${event} ${lbcl}lbcl set${set_num} (sweep ${sweep_id})"
     docker run -d --gpus "device=${gpu_id}" \
       -e EVENT_NAME="${event}" \
-      -e LBCL_SIZE="${lbcl}" \
       -e SET_NUM="${set_num}" \
       -e DEBUG="${DEBUG:-}" \
+      -e HF_TOKEN="${HF_TOKEN}" \
       -v ${HOME}/ssl:/workspace/ssl \
       -v /tmp/humaid_ssl:/workspace/ssl/artifacts \
       --name "${cname}" \
