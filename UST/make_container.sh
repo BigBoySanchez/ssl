@@ -77,6 +77,7 @@ launch_agent() {
       "${IMAGE}" \
       bash -c '
         cd /workspace/ssl/UST && \
+        pip install wandb torchmetrics && \
         echo "[Agent '${gpu_id}'] Running sweep '${sweep_id}' ('${event}' '${lbcl}'lbcl set'${set_num}')" && \
         wandb agent --count 10 '${ENTITY}'/'${PROJECT}'/'${sweep_id}' && \
         echo "[Agent '${gpu_id}'] Sweep '${sweep_id}' finished."
