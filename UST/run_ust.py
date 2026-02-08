@@ -23,33 +23,47 @@ logging.basicConfig(level = logging.INFO)
 GLOBAL_SEED = 67
 logger.info ("Global seed {}".format(GLOBAL_SEED))
 
-# label map for disaster with 10 class 
-# adjust if using a different dataset with different classes
-label_to_id = {
-	"caution_and_advice":0,
-	"displaced_people_and_evacuations":1,
-	"infrastructure_and_utility_damage":2,
-	"injured_or_dead_people":3,
-	"missing_or_found_people":4,
-	"not_humanitarian":5,
-	"other_relevant_information":6,
-	"requests_or_urgent_needs":7,
-	"rescue_volunteering_or_donation_effort":8,
-	"sympathy_and_support":9, 
+# Added event class mapping
+EVENT_CLASS_MAPPING = {
+    'california_wildfires_2018': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'missing_or_found_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'canada_wildfires_2016': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'cyclone_idai_2019': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'missing_or_found_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'hurricane_dorian_2019': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'hurricane_florence_2018': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'hurricane_harvey_2017': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'hurricane_irma_2017': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'hurricane_maria_2017': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'kaikoura_earthquake_2016': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support'],
+    'kerala_floods_2018': ['caution_and_advice', 'displaced_people_and_evacuations', 'infrastructure_and_utility_damage', 'injured_or_dead_people', 'not_humanitarian', 'other_relevant_information', 'requests_or_urgent_needs', 'rescue_volunteering_or_donation_effort', 'sympathy_and_support']
 }
 
-def get_dataset(path, tokenizer, labeled=True):
+# label map will be set dynamically based on event
+label_to_id = {}
+
+def get_dataset(path, tokenizer, labeled=True, event=None):
     if not os.path.exists(path):
         raise FileNotFoundError(f"Dataset file not found: {path}")
 
+    # Use pandas for efficient reading and filtering
     df = pd.read_csv(path, sep='\t')
+    
+    if event:
+        if 'event' in df.columns:
+            df = df[df['event'] == event]
+        # If 'event' column is missing, we assume the file is already specific to the event (like the labeled training files)
+        # or we just can't filter. 
+        # But for joined dev/test files, this is critical.
+    
     text_list = []
     labels_list = []
     ids_list = []
+    
+    # Iterate over filtered dataframe
     for i, row in df.iterrows():
         if pd.isna(row['tweet_text']):
             continue
         text_list.append(row['tweet_text'])
+        # Use the global label_to_id which should be set by now
         labels_list.append(label_to_id[row['class_label']])
         ids_list.append(row['tweet_id'])
         
@@ -96,8 +110,32 @@ if __name__ == '__main__':
 	args = vars(parser.parse_args())
 	logger.info(args)
 
-	args = vars(parser.parse_args())
-	logger.info(args)
+    # --- Debug Mode ---
+	if os.environ.get("DEBUG"):
+		logger.info("!!! DEBUG MODE ENABLED !!!")
+		args["sup_epochs"] = 1
+		args["unsup_epochs"] = 1
+		args["N_base"] = 1
+		args["sample_size"] = 100
+		args["unsup_size"] = 50
+
+    # --- Populate label_to_id ---
+	event_name = args.get("event")
+	if event_name and event_name in EVENT_CLASS_MAPPING:
+		labels = sorted(EVENT_CLASS_MAPPING[event_name])
+		label_to_id.update({l: i for i, l in enumerate(labels)})
+		logger.info(f"Using {len(labels)} classes for event {event_name}")
+	else:
+		# Fallback or legacy behavior
+		default_labels = [
+			"caution_and_advice", "displaced_people_and_evacuations", 
+			"infrastructure_and_utility_damage", "injured_or_dead_people", 
+			"missing_or_found_people", "not_humanitarian", 
+			"other_relevant_information", "requests_or_urgent_needs", 
+			"rescue_volunteering_or_donation_effort", "sympathy_and_support"
+		]
+		label_to_id.update({l: i for i, l in enumerate(default_labels)})
+		logger.info("Using default 10 classes.")
 
 	# --- HPO / Data Path Logic ---
 	# If HPO args are provided, resolve paths to standardized location

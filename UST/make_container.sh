@@ -71,6 +71,7 @@ launch_agent() {
       -e EVENT_NAME="${event}" \
       -e LBCL_SIZE="${lbcl}" \
       -e SET_NUM="${set_num}" \
+      -e DEBUG="${DEBUG:-}" \
       -v ${HOME}/ssl:/workspace/ssl \
       -v /tmp/humaid_ssl:/workspace/ssl/artifacts \
       --name "${cname}" \
