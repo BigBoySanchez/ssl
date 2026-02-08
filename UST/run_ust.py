@@ -153,12 +153,12 @@ if __name__ == '__main__':
 			base_data_path = "data/humaid"
 			
 		# Construct standardized paths
-		# Train: ../data/humaid/anh_4o_mini/sep/{lbcl}lb/{set_num}/labeled.tsv
-		train_path = f"{base_data_path}/anh_4o_mini/sep/{lbcl}lb/{set_num}/labeled.tsv"
+		# Train: ../data/humaid/anh_4o/sep/{lbcl}lb/{set_num}/labeled.tsv
+		train_path = f"{base_data_path}/anh_4o/sep/{lbcl}lb/{set_num}/labeled.tsv"
 		
-		# Unlabeled: ../data/humaid/anh_4o_mini/sep/{lbcl}lb/{set_num}/unlabeled.tsv
+		# Unlabeled: ../data/humaid/anh_4o/sep/{lbcl}lb/{set_num}/unlabeled.tsv
 		# (Assuming this exists based on structure, if not we might need a fallback or verify)
-		unlabeled_path = f"{base_data_path}/anh_4o_mini/sep/{lbcl}lb/{set_num}/unlabeled.tsv"
+		unlabeled_path = f"{base_data_path}/anh_4o/sep/{lbcl}lb/{set_num}/unlabeled.tsv"
 		
 		# Dev/Test: ../data/humaid/joined/dev.tsv (need filtering by event)
 		# NOTE: get_dataset reads the file directly. We need to handle filtering inside get_dataset or 
@@ -297,10 +297,15 @@ if __name__ == '__main__':
 
 	# Load Datasets
 	if use_hpo_paths:
-		ds_train = get_dataset_smart(train_path, tokenizer, labeled=True) # Unlabeled is filtered? No, train is specific file
-		ds_unlabeled = get_dataset_smart(unlabeled_path, tokenizer, labeled=False)
+		ds_train = get_dataset_smart(train_path, tokenizer, labeled=True, filter_event=disaster_name) # Unlabeled is filtered? No, train is specific file
+		ds_unlabeled = get_dataset_smart(unlabeled_path, tokenizer, labeled=False, filter_event=disaster_name)
 		ds_dev = get_dataset_smart(dev_path, tokenizer, labeled=True, filter_event=disaster_name)
 		ds_test = get_dataset_smart(test_path, tokenizer, labeled=True, filter_event=disaster_name)
+
+		logger.info(f"Loaded train set size: {len(ds_train)}")
+		logger.info(f"Loaded unlabeled set size: {len(ds_unlabeled)}")
+		logger.info(f"Loaded dev set size: {len(ds_dev)}")
+		logger.info(f"Loaded test set size: {len(ds_test)}")
 	else:
 		# Use original get_dataset for legacy
 		ds_train = get_dataset(train_path, tokenizer)
