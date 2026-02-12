@@ -165,7 +165,7 @@ def evaluate(model, n_classes, test_dataloader, criterion, batch_size, temp_scal
 
 
 
-def	train_model(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, cfg, model_dir, sup_batch_size=16, unsup_batch_size=64, unsup_size=4096, sample_size=16384,
+def	train_model_ust(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, cfg, model_dir, sup_batch_size=16, unsup_batch_size=64, unsup_size=4096, sample_size=16384,
 	            sample_scheme='easy_bald_class_conf', T=30, alpha=0.1, sup_epochs=20, unsup_epochs=25, N_base=10, dense_dropout=0.5, attention_probs_dropout_prob=0.3, hidden_dropout_prob=0.3,
                 results_file="", temp_scaling=False, ls=0.0, n_classes=10, learning_rate=5e-5, run_name="ust_experiment", token=None):
 
@@ -555,6 +555,263 @@ def	train_model(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, 
         
     except Exception as e:
         logger.warning(f"Failed to clean up local files: {e}")
+
+
+def	train_mixmatch(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, cfg, model_dir, T_sharpen, 
+                sup_batch_size=16, unsup_batch_size=64, unsup_size=4096, sample_size=16384,
+	            sample_scheme="uniform",T=30, alpha=0.1, sup_epochs=20, unsup_epochs=25, N_base=10, dense_dropout=0.5, attention_probs_dropout_prob=0.3, hidden_dropout_prob=0.3,
+                results_file="", temp_scaling=False, ls=0.0, n_classes=10):
+
+    load_best = False
+    logger_dict = {}
+    logger_dict["Temperature Scaling"] = temp_scaling
+    logger_dict["Label Smoothing"]= ls
+
+    train_dataloader = torch.utils.data.DataLoader(
+        ds_train, batch_size=sup_batch_size, shuffle=True)   
+    validation_dataloader = torch.utils.data.DataLoader(
+        ds_dev, batch_size=sup_batch_size, shuffle=False)
+    test_dataloader = torch.utils.data.DataLoader(
+        ds_test, batch_size=128, shuffle=False)
+    
+    cfg.num_labels = 10
+    copy_cfg = deepcopy(cfg)
+    copy_cfg.attention_probs_dropout_prob = 0.1
+    copy_cfg.hidden_dropout_prob = 0.1
+    #run the base model n times with different initialization to select best base model based on validation loss
+    best_f1_overall = 0
+    crt_patience = 0
+    loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=ls)
+
+    if load_best == False:
+        for counter in range(N_base):
+            best_f1 = 0
+            copy_cfg.return_dict  = True
+            model = BertModel(pt_teacher_checkpoint, num_labels=n_classes)
+            model.to(device)
+            model.train()
+            optimizer = torch.optim.Adam(model.parameters(), lr=5e-05)
+            if counter == 0:
+                logger.info(model)
+            for epoch in range(sup_epochs):
+                for data in tqdm(train_dataloader):
+                    cuda_tensors = {key: data[key].to(
+                        device) for key in data if key not in ['idx', 'weights']}
+                    optimizer.zero_grad()
+                    logits = model(input_ids=cuda_tensors['input_ids'], token_type_ids=cuda_tensors['token_type_ids'], attention_mask=cuda_tensors['attention_mask'])
+                    #print(logits)
+                    loss = loss_fn(logits.logits, cuda_tensors['lbl'])
+                    loss.backward()
+                    optimizer.step()
+
+                f1_macro_validation, loss_validation, ece = evaluate(
+                    model, n_classes, validation_dataloader, loss_fn, unsup_batch_size)
+
+                if f1_macro_validation >= best_f1:
+                    crt_patience = 0
+                    best_f1 = f1_macro_validation
+                    if best_f1 > best_f1_overall:
+                        torch.save(model.state_dict(),"data/" + model_dir + "/pytorch_model.bin")
+                        best_f1_overall = best_f1
+                    print('New best macro validation', best_f1, 'Epoch', epoch)
+                    continue
+            
+                if crt_patience == 3:
+                    crt_patience = 0
+                    print('Exceeding max patience; Exiting..')
+                    break
+
+                crt_patience += 1
+
+        del model
+
+    for epoch in range(unsup_epochs):
+      
+        # This section is to generate pseudo-labels for the unlabeled data using the teacher model and 
+        # sharpen them using T_sharpen from the mixmatch algorithm. These pseudo-labels are then used 
+        # for the mixup training in the next section
+        copy_cfg.return_dict = True
+        model = BertModel(pt_teacher_checkpoint, num_labels=n_classes)
+        state_dict = torch.load("data/" + model_dir + "/pytorch_model.bin")
+        model.load_state_dict(state_dict)
+        model.to(device)
+        model.eval()
+        data_loader = torch.utils.data.DataLoader(
+            ds_unlabeled, batch_size=128, shuffle=False)   
+        y_pred = []
+        tweet_ids = []
+        with torch.no_grad():
+            for elem in data_loader:
+                x = {key: elem[key].to(device)
+                for key in elem if key not in ['weights']}
+                pred = model(
+                input_ids=x['input_ids'], token_type_ids=x['token_type_ids'], attention_mask=x['attention_mask'])
+                y_pred.extend(pred.logits.cpu().numpy())
+                tweet_ids.extend(x['idx'].cpu())
+        del model
+        y_pred = np.array(y_pred)
+        tweet_ids = np.array(tweet_ids)
+
+        prob_df = pd.DataFrame(y_pred, columns=['Prob_' + str(i) for i in range(10)])
+        prob_df["tweet_id"] = tweet_ids
+
+        # Group by tweet_id and calculate the average of the probabilities
+        avg_probs_df = prob_df.groupby('tweet_id').mean().reset_index()
+
+        # Divide the probabilities by T
+        avg_probs_df[['Prob_' + str(i) for i in range(10)]] = avg_probs_df[['Prob_' + str(i) for i in range(10)]] / T_sharpen
+
+        # Find the column with the maximum value for each row and extract the integer part
+        avg_probs_df['Max_Prob_Column'] = avg_probs_df[['Prob_' + str(i) for i in range(10)]].idxmax(axis=1)
+        avg_probs_df['Label'] = avg_probs_df['Max_Prob_Column'].str.extract('(\d+)').astype(int)
+        
+        # Drop the helper column if desired
+        avg_probs_df = avg_probs_df.drop(columns=['Max_Prob_Column'])
+
+        unlabeled_df = pd.DataFrame()
+        unlabeled_df["text"] = ds_unlabeled.text_list
+        unlabeled_df["tweet_id"] = ds_unlabeled.idxes
+
+        # Merge the two DataFrames on tweet_id
+        merged_df = pd.merge(unlabeled_df , avg_probs_df[['tweet_id', 'Label']], on='tweet_id', how='left')
+        
+
+        # Now we have the pseudo-labeled dataset in merged_df which contains the text, tweet_id and the pseudo-labels. 
+        # We can now use this dataset for mixup training along with the original labeled dataset
+
+        model = BertModel(pt_teacher_checkpoint, num_labels=n_classes)
+        model.to(device)
+        state_dict = torch.load("data/" +model_dir + "/pytorch_model.bin")
+        model.load_state_dict(state_dict)
+        optimizer = torch.optim.Adam(model.parameters(), lr=5e-05)
+        model.train()
+
+        psuedolabeled_dataset = CustomDataset_tracked(merged_df["text"], merged_df["Label"], merged_df["tweet_id"], ds_unlabeled.tokenizer, labeled = True)
+
+        unsup_dataloader = torch.utils.data.DataLoader(
+        psuedolabeled_dataset, batch_size=unsup_batch_size, shuffle=True)   
+        loss_fn_supervised = torch.nn.CrossEntropyLoss(reduction='mean', label_smoothing=ls)
+        loss_fn_unsupervised = torch.nn.CrossEntropyLoss(reduction='none', label_smoothing=ls)
+
+        data_sampler = torch.utils.data.RandomSampler(ds_train, num_samples=10**5, replacement=True)
+        batch_sampler = torch.utils.data.BatchSampler(data_sampler, sup_batch_size, drop_last=False)
+        train_dataloader = torch.utils.data.DataLoader(ds_train, batch_sampler=batch_sampler)
+        crt_patience = 0
+
+        for epoch in range(sup_epochs):
+            for data_supervised, data_unsupervised in tqdm(zip(train_dataloader, unsup_dataloader)):
+                cuda_tensors_supervised = {key: data_supervised[key].to(
+                    device) for key in data_supervised if key not in ['idx', 'weights']}
+
+                cuda_tensors_unsupervised = {key: data_unsupervised[key].to(
+                    device) for key in data_unsupervised if key not in ['idx']}
+                    
+                merged_tensors = {}
+                for k in cuda_tensors_supervised:
+                    merged_tensors[k] = torch.cat((cuda_tensors_supervised[k], cuda_tensors_unsupervised[k]))
+
+                num_lb = cuda_tensors_supervised['input_ids'].shape[0]
+                num_ulb = cuda_tensors_unsupervised['input_ids'].shape[0]
+
+                optimizer.zero_grad()
+                logits = model(input_ids=merged_tensors['input_ids'], token_type_ids=merged_tensors['token_type_ids'], attention_mask=merged_tensors['attention_mask'])
+
+                logits_lbls = logits.logits[:num_lb]
+                logits_ulbl = logits.logits[num_lb:]
+
+
+                # ------ mixup loss here ---------
+                labels_lbls = F.one_hot(cuda_tensors_supervised['lbl'],num_classes=logits_lbls.shape[1])
+                labels_ulbl = F.one_hot(cuda_tensors_unsupervised['lbl'],num_classes=logits_ulbl.shape[1])
+                alpha = 0.4
+                lam = np.random.beta(alpha,alpha)
+                lam = max(lam, 1 - lam)
+                W_logits_ = logits.logits
+                W_labels_ = torch.cat((labels_lbls, labels_ulbl))
+                shuffled_ind = torch.randperm(num_lb+num_ulb)
+                W_logits = W_logits_[shuffled_ind]
+                W_labels = W_labels_[shuffled_ind]
+                # print("W_labels", W_labels)
+        
+                X_logits = logits_lbls * lam + W_logits[:num_lb] * (1-lam)
+                X_labels = labels_lbls * lam + W_labels[:num_lb] * (1-lam)
+
+                U_logits = logits_ulbl * lam + W_logits[num_lb:] * (1-lam)
+                U_labels = labels_ulbl * lam + W_labels[num_lb:] * (1-lam)
+
+                X_loss = loss_fn_supervised(X_logits, X_labels)
+                U_loss = torch.mean(torch.sum(-U_labels * torch.log_softmax(U_logits, dim=-1), dim=0))
+
+                loss = 0.5 * X_loss + 0.5 * U_loss
+
+                loss.backward()
+                optimizer.step()
+
+            f1_macro_validation, loss_validation, ece = evaluate(
+                model, n_classes, validation_dataloader, loss_fn, unsup_batch_size)
+            print('Confident learning metrics', f1_macro_validation)
+
+            if f1_macro_validation >= best_f1:
+                crt_patience = 0
+                best_f1 = f1_macro_validation
+                if best_f1 > best_f1_overall:
+                    #model.save_pretrained(model_dir+"/ust")
+                    torch.save(model.state_dict(), "data/" +model_dir + "/pytorch_model.bin")
+                    best_f1_overall = best_f1
+                print('New best macro validation', best_f1, 'Epoch', epoch)
+                continue
+        
+            if crt_patience == 3:
+                crt_patience = 0
+                print('Exceeding max patience; Exiting..')
+                break
+
+            crt_patience += 1
+
+
+    # load the best model and evaluate on test set
+    copy_cfg.return_dict = True
+    model = BertModel(pt_teacher_checkpoint, num_labels=n_classes)
+    model.to(device)
+    state_dict = torch.load("data/" +model_dir + "/pytorch_model.bin")
+    model.load_state_dict(state_dict)
+
+    f1_macro_test, loss_test, ece_metric = evaluate(model, n_classes, test_dataloader, loss_fn, unsup_batch_size)
+    logger.info ("Test macro F1 based on best validation f1 : {}".format(f1_macro_test))
+
+    logger_dict["Best mixmatch model"] = {}
+    logger_dict["Best mixmatch model"]["F1 before temp scaling"] = str(f1_macro_test)
+    logger_dict["Best mixmatch model"]["ECE before temp scaling"] = str(ece_metric)
+
+
+    logger_dict["Best mixmatch model"]["T before temp scaling"] = str(model.T.detach().cpu().numpy()[0])
+
+    if temp_scaling:
+        optimizer = torch.optim.Adam(model.parameters(), lr=2e-02)
+
+        for epoch in range(20):
+            for data in tqdm(validation_dataloader):
+                cuda_tensors = {key: data[key].to(
+                        device) for key in data if key not in ['idx', 'weights']}
+                optimizer.zero_grad()
+  
+                result = model(cuda_tensors['input_ids'], cuda_tensors['token_type_ids'], cuda_tensors['attention_mask'], True)
+
+                loss = loss_fn(result.logits, cuda_tensors['lbl'])
+                loss.backward()
+                optimizer.step()
+
+
+        f1_macro_test, loss_test, ece_metric = evaluate(model, n_classes, test_dataloader, loss_fn, unsup_batch_size, True)
+
+        logger_dict["Best mixmatch model"]["F1 after temp scaling"] = str(f1_macro_test)
+        logger_dict["Best mixmatch model"]["ECE after temp scaling"] = str(ece_metric)
+
+        logger_dict["Best mixmatch model"]["T  after temp scaling"] = str(model.T.detach().cpu().numpy()[0])
+
+    print(json.dumps(logger_dict, indent=4))
+    with open("data/" + model_dir +"/"+ results_file + '.txt','w') as fp:
+        fp.write(json.dumps(logger_dict, indent=4))
 
 
 

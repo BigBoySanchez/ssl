@@ -12,7 +12,7 @@ import transformers
 
 from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
 from custom_dataset import CustomDataset_tracked, CustomDataset
-from ust import train_model
+from ust import train_model_ust
 import wandb
 
 
@@ -106,7 +106,7 @@ if __name__ == '__main__':
 	parser.add_argument("--dense_dropout", nargs="?", type=float, default=0.5, help="dropout probability for final layers of teacher model")
 	parser.add_argument("--temp_scaling", nargs="?", type=bool, default=False, help="temp scaling" )
 	parser.add_argument("--label_smoothing", nargs="?", type=float, default=0.0, help="label smoothing factor")
-	parser.add_argument("--hf_token", nargs="?", default=os.environ.get("HF_TOKEN"), help="Hugging Face access token")
+
 
 	args = vars(parser.parse_args())
 	logger.info(args)
@@ -244,11 +244,11 @@ if __name__ == '__main__':
 	learning_rate = args["learning_rate"]
 
 
-	cfg = AutoConfig.from_pretrained(pt_teacher_checkpoint, token=args.get("hf_token"))
+	cfg = AutoConfig.from_pretrained(pt_teacher_checkpoint, token=os.environ.get("HF_TOKEN"))
 	cfg.hidden_dropout_prob = hidden_dropout_prob
 	cfg.attention_probs_dropout_prob = attention_probs_dropout_prob
 
-	tokenizer = AutoTokenizer.from_pretrained(pt_teacher_checkpoint, token=args.get("hf_token"))
+	tokenizer = AutoTokenizer.from_pretrained(pt_teacher_checkpoint, token=os.environ.get("HF_TOKEN"))
     
 
 	# Override get_dataset to handle filtering if using HPO paths
@@ -294,6 +294,7 @@ if __name__ == '__main__':
 			# The original code used CustomDataset for unlabeled?
 			# Original: ds_unlabeled = get_dataset(..., False) -> CustomDataset_tracked
 			# Wait, original get_dataset calls CustomDataset_tracked regardless of labeled=True/False
+			# The tracked version is needed for ID tracking during uncertainty estimation
 			return CustomDataset_tracked(text_list, labels_list, ids_list, tokenizer, labeled=False)
 
 	# Load Datasets
@@ -315,7 +316,7 @@ if __name__ == '__main__':
 		ds_unlabeled = get_dataset(unlabeled_path, tokenizer, False)
      
 
-	train_model(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, cfg, model_dir, sup_batch_size=sup_batch_size, unsup_batch_size=unsup_batch_size, unsup_size=unsup_size, sample_size=sample_size,
+	train_model_ust(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, cfg, model_dir, sup_batch_size=sup_batch_size, unsup_batch_size=unsup_batch_size, unsup_size=unsup_size, sample_size=sample_size,
 	            sample_scheme=sample_scheme, T=T, alpha=alpha, sup_epochs=sup_epochs, unsup_epochs=unsup_epochs, N_base=N_base, dense_dropout=dense_dropout, attention_probs_dropout_prob=attention_probs_dropout_prob, hidden_dropout_prob=hidden_dropout_prob,
-				results_file=results_file_name, temp_scaling = temp_scaling, ls=label_smoothing, n_classes=len(label_to_id.keys()), learning_rate=learning_rate, run_name=run_name, token=args.get("hf_token"))
+				results_file=results_file_name, temp_scaling = temp_scaling, ls=label_smoothing, n_classes=len(label_to_id.keys()), learning_rate=learning_rate, run_name=run_name, token=os.environ.get("HF_TOKEN"))
 
