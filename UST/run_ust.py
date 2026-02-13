@@ -130,24 +130,6 @@ if __name__ == '__main__':
 		args["sample_size"] = 100
 		args["unsup_size"] = 50
 
-    # --- Populate label_to_id ---
-	event_name = args.get("event")
-	if event_name and event_name in EVENT_CLASS_MAPPING:
-		labels = sorted(EVENT_CLASS_MAPPING[event_name])
-		label_to_id.update({l: i for i, l in enumerate(labels)})
-		logger.info(f"Using {len(labels)} classes for event {event_name}")
-	else:
-		# Fallback or legacy behavior
-		default_labels = [
-			"caution_and_advice", "displaced_people_and_evacuations", 
-			"infrastructure_and_utility_damage", "injured_or_dead_people", 
-			"missing_or_found_people", "not_humanitarian", 
-			"other_relevant_information", "requests_or_urgent_needs", 
-			"rescue_volunteering_or_donation_effort", "sympathy_and_support"
-		]
-		label_to_id.update({l: i for i, l in enumerate(default_labels)})
-		logger.info("Using default 10 classes.")
-
 	# --- HPO / Data Path Logic ---
 	# If HPO args are provided, resolve paths to standardized location
 	if args["event"] and args["lbcl"] and args["set_num"]:
@@ -219,6 +201,24 @@ if __name__ == '__main__':
 		
 		use_hpo_paths = False
 		run_name = f"{disaster_name}_legacy" # Placeholder
+
+    # --- Populate label_to_id ---
+	event_name = args.get("event")
+	if event_name and event_name in EVENT_CLASS_MAPPING:
+		labels = sorted(EVENT_CLASS_MAPPING[event_name])
+		label_to_id.update({l: i for i, l in enumerate(labels)})
+		logger.info(f"Using {len(labels)} classes for event {event_name}")
+	else:
+		# Fallback or legacy behavior
+		default_labels = [
+			"caution_and_advice", "displaced_people_and_evacuations", 
+			"infrastructure_and_utility_damage", "injured_or_dead_people", 
+			"missing_or_found_people", "not_humanitarian", 
+			"other_relevant_information", "requests_or_urgent_needs", 
+			"rescue_volunteering_or_donation_effort", "sympathy_and_support"
+		]
+		label_to_id.update({l: i for i, l in enumerate(default_labels)})
+		logger.info("Using default 10 classes.")
 
 	max_seq_length = args["seq_len"]
 	sup_batch_size = args["sup_batch_size"]
