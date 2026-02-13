@@ -18,7 +18,17 @@ import wandb
 
 # logging
 logger = logging.getLogger('UST')
-logging.basicConfig(level = logging.INFO)
+if sys.version_info >= (3, 8):
+    logging.basicConfig(level=logging.INFO, force=True)
+else:
+    # Fallback for older python if needed, though force=True is cleaner
+    logging.basicConfig(level=logging.INFO)
+    # Clear existing handlers if any
+    logging.getLogger().handlers = []
+    logging.getLogger().addHandler(logging.StreamHandler())
+    logging.getLogger().setLevel(logging.INFO)
+
+logger.setLevel(logging.INFO)
 
 GLOBAL_SEED = 67
 logger.info ("Global seed {}".format(GLOBAL_SEED))
