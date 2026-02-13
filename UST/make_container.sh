@@ -5,10 +5,10 @@ set -euo pipefail
 # CONFIG
 # ──────────────────────────────────────────────
 ENTITY="jacoba-california-state-university-east-bay"
-PROJECT="humaid_ust_hpo"
+PROJECT="humaid_st_uniform_hpo"
 IMAGE="cahsi/disaster-ssl:cuda12-py2.2"
 MAX_GPUS=7
-SWEEP_ID_FILE="ust_sweep_ids.txt"   # one sweep ID per line
+SWEEP_ID_FILE="st_sweep_ids.txt"   # one sweep ID per line
 INCREMENT=1                     # stride over (event×lbcl) combos
 START_OFFSET=0                  # start combo index (0-based) before stride
 
