@@ -5,7 +5,7 @@ set -euo pipefail
 # CONFIG
 # ──────────────────────────────────────────────
 ENTITY="jacoba-california-state-university-east-bay"
-PROJECT="humaid_st_uniform_hpo"
+PROJECT="humaid_st_uniform_hpo_v2"
 IMAGE="cahsi/disaster-ssl:cuda12-py2.2"
 MAX_GPUS=7
 SWEEP_ID_FILE="st_sweep_ids.txt"   # one sweep ID per line

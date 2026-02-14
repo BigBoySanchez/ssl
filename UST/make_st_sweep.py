@@ -20,13 +20,13 @@ BASE_SWEEP = {
         },
         "sup_epochs": {
             "distribution": "int_uniform",
-            "min": 3,
-            "max": 6
+            "min": 10,
+            "max": 25
         },
         "unsup_epochs": {
             "distribution": "int_uniform",
-            "min": 3,
-            "max": 6
+            "min": 10,
+            "max": 25
         },
         "sup_batch_size": {
             "values": [16, 32]
@@ -122,7 +122,7 @@ for lbcl in LBCL_SIZES:
             sweep_cfg["parameters"]["event"] = {"value": event}
             sweep_cfg["parameters"]["lbcl"] = {"value": lbcl}
 
-            project = f"humaid_st_uniform_hpo"
+            project = f"humaid_st_uniform_hpo_v2"
 
             sweep_id = wandb.sweep(sweep=sweep_cfg, project=project, entity=ENTITY)
             ids.append(sweep_id)
