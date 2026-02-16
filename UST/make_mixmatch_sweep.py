@@ -5,7 +5,7 @@ import wandb, copy, os
 # ───────────────────────────────
 BASE_SWEEP = {
     "name": "humaid_mixmatch_sweep",
-    "program": "UST/run_mixmatch.py",
+    "program": "run_mixmatch.py",
     "method": "bayes",
     "metric": {
         "name": "dev_macro-F1",
