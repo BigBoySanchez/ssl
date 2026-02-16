@@ -611,6 +611,8 @@ def	train_mixmatch(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoin
                     crt_patience = 0
                     best_f1 = f1_macro_validation
                     if best_f1 > best_f1_overall:
+                        if not os.path.exists("data/" + model_dir):
+                            os.makedirs("data/" + model_dir)
                         torch.save(model.state_dict(),"data/" + model_dir + "/pytorch_model.bin")
                         best_f1_overall = best_f1
                     print('New best macro validation', best_f1, 'Epoch', epoch)
@@ -756,6 +758,8 @@ def	train_mixmatch(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoin
                 best_f1 = f1_macro_validation
                 if best_f1 > best_f1_overall:
                     #model.save_pretrained(model_dir+"/ust")
+                    if not os.path.exists("data/" + model_dir):
+                        os.makedirs("data/" + model_dir)
                     torch.save(model.state_dict(), "data/" +model_dir + "/pytorch_model.bin")
                     best_f1_overall = best_f1
                 print('New best macro validation', best_f1, 'Epoch', epoch)
