@@ -574,7 +574,7 @@ def	train_mixmatch(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoin
     test_dataloader = torch.utils.data.DataLoader(
         ds_test, batch_size=128, shuffle=False)
     
-    cfg.num_labels = 10
+    cfg.num_labels = n_classes
     copy_cfg = deepcopy(cfg)
     copy_cfg.attention_probs_dropout_prob = 0.1
     copy_cfg.hidden_dropout_prob = 0.1
@@ -654,17 +654,17 @@ def	train_mixmatch(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoin
         y_pred = np.array(y_pred)
         tweet_ids = np.array(tweet_ids)
 
-        prob_df = pd.DataFrame(y_pred, columns=['Prob_' + str(i) for i in range(10)])
+        prob_df = pd.DataFrame(y_pred, columns=['Prob_' + str(i) for i in range(n_classes)])
         prob_df["tweet_id"] = tweet_ids
 
         # Group by tweet_id and calculate the average of the probabilities
         avg_probs_df = prob_df.groupby('tweet_id').mean().reset_index()
 
         # Divide the probabilities by T
-        avg_probs_df[['Prob_' + str(i) for i in range(10)]] = avg_probs_df[['Prob_' + str(i) for i in range(10)]] / T_sharpen
+        avg_probs_df[['Prob_' + str(i) for i in range(n_classes)]] = avg_probs_df[['Prob_' + str(i) for i in range(n_classes)]] / T_sharpen
 
         # Find the column with the maximum value for each row and extract the integer part
-        avg_probs_df['Max_Prob_Column'] = avg_probs_df[['Prob_' + str(i) for i in range(10)]].idxmax(axis=1)
+        avg_probs_df['Max_Prob_Column'] = avg_probs_df[['Prob_' + str(i) for i in range(n_classes)]].idxmax(axis=1)
         avg_probs_df['Label'] = avg_probs_df['Max_Prob_Column'].str.extract('(\d+)').astype(int)
         
         # Drop the helper column if desired
