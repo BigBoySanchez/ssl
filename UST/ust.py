@@ -560,7 +560,7 @@ def	train_model_ust(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoi
 def	train_mixmatch(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoint, cfg, model_dir, T_sharpen, 
                 sup_batch_size=16, unsup_batch_size=64, unsup_size=4096, sample_size=16384,
 	            sample_scheme="uniform",T=30, alpha=0.1, sup_epochs=20, unsup_epochs=25, N_base=10, dense_dropout=0.5, attention_probs_dropout_prob=0.3, hidden_dropout_prob=0.3,
-                results_file="", temp_scaling=False, ls=0.0, n_classes=10):
+                results_file="", temp_scaling=False, ls=0.0, n_classes=10, token=None):
 
     load_best = False
     logger_dict = {}
@@ -587,7 +587,7 @@ def	train_mixmatch(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoin
         for counter in range(N_base):
             best_f1 = 0
             copy_cfg.return_dict  = True
-            model = BertModel(pt_teacher_checkpoint, num_labels=n_classes)
+            model = BertModel(pt_teacher_checkpoint, num_labels=n_classes, token=token)
             model.to(device)
             model.train()
             optimizer = torch.optim.Adam(model.parameters(), lr=5e-05)
@@ -631,7 +631,7 @@ def	train_mixmatch(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoin
         # sharpen them using T_sharpen from the mixmatch algorithm. These pseudo-labels are then used 
         # for the mixup training in the next section
         copy_cfg.return_dict = True
-        model = BertModel(pt_teacher_checkpoint, num_labels=n_classes)
+        model = BertModel(pt_teacher_checkpoint, num_labels=n_classes, token=token)
         state_dict = torch.load("data/" + model_dir + "/pytorch_model.bin")
         model.load_state_dict(state_dict)
         model.to(device)
@@ -679,7 +679,7 @@ def	train_mixmatch(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoin
         # Now we have the pseudo-labeled dataset in merged_df which contains the text, tweet_id and the pseudo-labels. 
         # We can now use this dataset for mixup training along with the original labeled dataset
 
-        model = BertModel(pt_teacher_checkpoint, num_labels=n_classes)
+        model = BertModel(pt_teacher_checkpoint, num_labels=n_classes, token=token)
         model.to(device)
         state_dict = torch.load("data/" +model_dir + "/pytorch_model.bin")
         model.load_state_dict(state_dict)
@@ -723,7 +723,7 @@ def	train_mixmatch(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoin
                 # ------ mixup loss here ---------
                 labels_lbls = F.one_hot(cuda_tensors_supervised['lbl'],num_classes=logits_lbls.shape[1])
                 labels_ulbl = F.one_hot(cuda_tensors_unsupervised['lbl'],num_classes=logits_ulbl.shape[1])
-                alpha = 0.4
+                
                 lam = np.random.beta(alpha,alpha)
                 lam = max(lam, 1 - lam)
                 W_logits_ = logits.logits
