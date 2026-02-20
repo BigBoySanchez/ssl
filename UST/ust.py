@@ -817,6 +817,14 @@ def	train_mixmatch(ds_train, ds_dev, ds_test, ds_unlabeled, pt_teacher_checkpoin
     with open("data/" + model_dir +"/"+ results_file + '.txt','w') as fp:
         fp.write(json.dumps(logger_dict, indent=4))
 
+    # Log Final Test Metrics to WandB
+    if wandb.run:
+        wandb.log({
+            "test_macro-F1": f1_macro_test,
+             "test_ece": ece_metric.item() if isinstance(ece_metric, torch.Tensor) else ece_metric,
+             "test_loss": loss_test
+        })
+
 
 
 
