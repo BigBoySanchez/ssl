@@ -28,18 +28,21 @@ def run_inference(df: pd.DataFrame, mock=False) -> pd.DataFrame:
     
     # Initialize the model that outputs all 28 classes
     pipe = pipeline("text-classification", 
-                    model="SamLowe/roberta-base-goemotions", # SamLowe model is a popular fine-tune of roberta for goemotions
+                    model="SamLowe/roberta-base-go_emotions", # SamLowe model is a popular fine-tune of roberta for goemotions
                     top_k=1, # We only need the top prediction (argmax)
                     truncation=True, 
                     max_length=512,
                     device=0)
     
-    # Run predictions in batch
+    # Run predictions in batch to avoid CUDA OOM
     texts = df["text"].tolist()
     
-    # We use a simple loop, batching can be added later if performance requires
-    results = pipe(texts)
-    
+    results = []
+    batch_size = 64 # Adjust if you still get OOM errors
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i+batch_size]
+        results.extend(pipe(batch))
+        
     # results is a list of lists because top_k returns a list of dicts for each input
     # e.g., [[{'label': 'anger', 'score': 0.9}]]
     dominants = []

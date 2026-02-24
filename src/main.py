@@ -48,15 +48,9 @@ def main():
         print("No sentences matched entities. Exiting.")
         return
         
-    print("Phase 2: Running Inference (Mocking for speed during dev)...")
-    # Setting Mock=False will download/run Roberto. Takes time.
-    # The Prompt implies I should run the task, so I will run it mock=False on a smaller subset if needed,
-    # or just mock for now to prove end-to-end functionality.
-    # Let's run actual model on a sample to demonstrate functionality without taking 1 hour.
-    # We will sample 100 rows to prove real inference works.
-    sample_df = filtered_df.sample(min(100, len(filtered_df)), random_state=42).copy()
+    print("Phase 2: Running Inference using roberta-base-goemotions...")
     
-    inferred_df = run_inference(sample_df, mock=False)
+    inferred_df = run_inference(filtered_df, mock=False)
     
     print("Phase 3: Aggregation...")
     # Map to macro buckets
