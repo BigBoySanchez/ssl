@@ -3,10 +3,10 @@ import pandas as pd
 import re
 
 def ingest_reddit_data(submissions_file, comments_file):
-    with open(submissions_file, 'r') as f:
+    with open(submissions_file, 'r', encoding='utf-8') as f:
         subs = json.load(f)
         
-    with open(comments_file, 'r') as f:
+    with open(comments_file, 'r', encoding='utf-8') as f:
         comms = json.load(f)
         
     data = []

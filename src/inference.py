@@ -31,7 +31,8 @@ def run_inference(df: pd.DataFrame, mock=False) -> pd.DataFrame:
                     model="SamLowe/roberta-base-goemotions", # SamLowe model is a popular fine-tune of roberta for goemotions
                     top_k=1, # We only need the top prediction (argmax)
                     truncation=True, 
-                    max_length=512)
+                    max_length=512,
+                    device=0)
     
     # Run predictions in batch
     texts = df["text"].tolist()
