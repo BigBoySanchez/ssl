@@ -29,7 +29,7 @@ from transformers import AutoConfig, AutoTokenizer, AutoModelForSequenceClassifi
 logger = logging.getLogger('UST')
 logging.basicConfig(level=logging.INFO)
 
-GLOBAL_SEED = int(os.getenv("PYTHONHASHSEED"))
+GLOBAL_SEED = int(os.getenv("PYTHONHASHSEED", "42"))
 logger.info("Global seed {}".format(GLOBAL_SEED))
 
 
