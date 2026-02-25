@@ -222,14 +222,16 @@ def train_ssl_no_aum_with_mixup(pt_teacher_checkpoint, ds_train, val_dataloader,
             labels_ulbl_high = F.one_hot(cuda_high['lbl'], num_classes=logits_ulbl_high.shape[1]).float()
 
             batch_size = logits_lbls.shape[0]
+            mix_size_1 = min(batch_size, logits_ulbl_low.shape[0])
+            mix_size_2 = min(logits_ulbl_high.shape[0], logits_ulbl_low.shape[0])
 
             # Mixup: labeled ↔ low-AUM unlabeled
-            M_logits_1 = lam * logits_lbls + (1 - lam) * logits_ulbl_low[:batch_size]
-            M_labels_1 = lam * labels_lbls + (1 - lam) * labels_ulbl_low[:batch_size]
+            M_logits_1 = lam * logits_lbls[:mix_size_1] + (1 - lam) * logits_ulbl_low[:mix_size_1]
+            M_labels_1 = lam * labels_lbls[:mix_size_1] + (1 - lam) * labels_ulbl_low[:mix_size_1]
 
             # Mixup: high-AUM ↔ low-AUM unlabeled
-            M_logits_2 = lam * logits_ulbl_high + (1 - lam) * logits_ulbl_low
-            M_labels_2 = lam * labels_ulbl_high + (1 - lam) * labels_ulbl_low
+            M_logits_2 = lam * logits_ulbl_high[:mix_size_2] + (1 - lam) * logits_ulbl_low[:mix_size_2]
+            M_labels_2 = lam * labels_ulbl_high[:mix_size_2] + (1 - lam) * labels_ulbl_low[:mix_size_2]
 
             loss_lbl = loss_fn_supervised(logits_lbls, cuda_sup['lbl'])
             loss_ulbl_high = loss_fn_unsupervised(logits_ulbl_high, cuda_high['lbl'])
@@ -543,36 +545,38 @@ def train_ssl_no_aum_with_sal_mixup(pt_teacher_checkpoint, ds_train, val_dataloa
             labels_ulbl_high = F.one_hot(cuda_high['lbl'], num_classes=logits_ulbl_high.shape[1]).float()
 
             batch_size = logits_lbls.shape[0]
+            mix_size_1 = min(batch_size, logits_ulbl_low.shape[0])
+            mix_size_2 = min(logits_ulbl_high.shape[0], logits_ulbl_low.shape[0])
 
             # ── Saliency-guided mixup for labeled ↔ low-AUM ──
-            sim_matrix = F.cosine_similarity(lbl_grads.unsqueeze(1), ulbl_low_grads[:batch_size].unsqueeze(0), dim=2)
+            sim_matrix = F.cosine_similarity(lbl_grads[:mix_size_1].unsqueeze(1), ulbl_low_grads[:mix_size_1].unsqueeze(0), dim=2)
             argmax_idx = torch.argmax(sim_matrix, dim=1)
             argmin_idx = torch.argmin(sim_matrix, dim=1)
 
-            similar = logits_ulbl_low[:batch_size][argmax_idx]
-            similar_label = labels_ulbl_low[:batch_size][argmax_idx]
-            dissimilar = logits_ulbl_low[:batch_size][argmin_idx]
-            dissimilar_label = labels_ulbl_low[:batch_size][argmin_idx]
+            similar = logits_ulbl_low[:mix_size_1][argmax_idx]
+            similar_label = labels_ulbl_low[:mix_size_1][argmax_idx]
+            dissimilar = logits_ulbl_low[:mix_size_1][argmin_idx]
+            dissimilar_label = labels_ulbl_low[:mix_size_1][argmin_idx]
 
-            M_logits_1_ood = lam * logits_lbls + (1 - lam) * dissimilar
-            M_labels_1_ood = lam * labels_lbls + (1 - lam) * dissimilar_label
-            M_logits_1_id = lam * logits_lbls + (1 - lam) * similar
-            M_labels_1_id = lam * labels_lbls + (1 - lam) * similar_label
+            M_logits_1_ood = lam * logits_lbls[:mix_size_1] + (1 - lam) * dissimilar
+            M_labels_1_ood = lam * labels_lbls[:mix_size_1] + (1 - lam) * dissimilar_label
+            M_logits_1_id = lam * logits_lbls[:mix_size_1] + (1 - lam) * similar
+            M_labels_1_id = lam * labels_lbls[:mix_size_1] + (1 - lam) * similar_label
 
             # ── Saliency-guided mixup for high-AUM ↔ low-AUM ──
-            sim_matrix_h = F.cosine_similarity(ulbl_high_grads.unsqueeze(1), ulbl_low_grads.unsqueeze(0), dim=2)
+            sim_matrix_h = F.cosine_similarity(ulbl_high_grads[:mix_size_2].unsqueeze(1), ulbl_low_grads[:mix_size_2].unsqueeze(0), dim=2)
             argmax_idx_h = torch.argmax(sim_matrix_h, dim=1)
             argmin_idx_h = torch.argmin(sim_matrix_h, dim=1)
 
-            similar_h = logits_ulbl_low[argmax_idx_h]
-            similar_label_h = labels_ulbl_low[argmax_idx_h]
-            dissimilar_h = logits_ulbl_low[argmin_idx_h]
-            dissimilar_label_h = labels_ulbl_low[argmin_idx_h]
+            similar_h = logits_ulbl_low[:mix_size_2][argmax_idx_h]
+            similar_label_h = labels_ulbl_low[:mix_size_2][argmax_idx_h]
+            dissimilar_h = logits_ulbl_low[:mix_size_2][argmin_idx_h]
+            dissimilar_label_h = labels_ulbl_low[:mix_size_2][argmin_idx_h]
 
-            M_logits_2_ood = lam * logits_ulbl_high + (1 - lam) * dissimilar_h
-            M_labels_2_ood = lam * labels_ulbl_high + (1 - lam) * dissimilar_label_h
-            M_logits_2_id = lam * logits_ulbl_high + (1 - lam) * similar_h
-            M_labels_2_id = lam * labels_ulbl_high + (1 - lam) * similar_label_h
+            M_logits_2_ood = lam * logits_ulbl_high[:mix_size_2] + (1 - lam) * dissimilar_h
+            M_labels_2_ood = lam * labels_ulbl_high[:mix_size_2] + (1 - lam) * dissimilar_label_h
+            M_logits_2_id = lam * logits_ulbl_high[:mix_size_2] + (1 - lam) * similar_h
+            M_labels_2_id = lam * labels_ulbl_high[:mix_size_2] + (1 - lam) * similar_label_h
 
             loss_lbl = loss_fn_supervised(logits_lbls, cuda_sup['lbl'])
             loss_ulbl_high = loss_fn_unsupervised(logits_ulbl_high, cuda_high['lbl'])
