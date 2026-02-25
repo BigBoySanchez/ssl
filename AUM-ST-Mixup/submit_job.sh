@@ -72,7 +72,7 @@ launch_agent() {
       -e SET_NUM="${set_num}" \
       -e DEBUG="${DEBUG:-}" \
       -e HF_TOKEN="${HF_TOKEN}" \
-      -e WANDB_API_KEY="${WANDB_API_KEY}"
+      -e WANDB_API_KEY="${WANDB_API_KEY}" \
       -v ${HOME}/ssl:/workspace/ssl \
       -v /tmp/humaid_ssl:/workspace/ssl/artifacts \
       --name "${cname}" \
