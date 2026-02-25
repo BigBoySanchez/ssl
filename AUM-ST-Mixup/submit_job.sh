@@ -78,7 +78,7 @@ launch_agent() {
       "${IMAGE}" \
       bash -c '
         cd /workspace/ssl/AUM-ST-Mixup && \
-        pip install wandb torchmetrics && \
+        pip install wandb torchmetrics aum==1.0.2 && \
         echo "[Agent '${gpu_id}'] Running sweep '${sweep_id}' ('${event}' '${lbcl}'lbcl set'${set_num}')" && \
         wandb agent --count 10 '${ENTITY}'/'${PROJECT}'/'${sweep_id}' && \
         echo "[Agent '${gpu_id}'] Sweep '${sweep_id}' finished."

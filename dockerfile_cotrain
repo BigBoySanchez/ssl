@@ -16,8 +16,9 @@ RUN pip install --no-cache-dir -r /workspace/ssl/requirements.txt
 # 3. Copy the rest of the source code
 COPY . /workspace/ssl
 
+RUN pip install --no-cache-dir wandb torchmetrics aum==1.0.2
+
 # Create symlinks and directories
 RUN mkdir -p /workspace/ssl/artifacts /workspace/ssl/data
 
 CMD ["bash"]
-
