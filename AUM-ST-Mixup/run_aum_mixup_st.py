@@ -12,8 +12,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 ust_dir = os.path.join(os.path.dirname(current_dir), "UST")
 sys.path.append(ust_dir)
 
-from custom_dataset import CustomDataset_tracked
-from aum_mixup_st import train_model_st_with_aummixup
+from aum_mixup_st import train_model_st_with_aummixup, CustomDataset
 
 logger = logging.getLogger('AUM-ST-Mixup')
 if sys.version_info >= (3, 8):
@@ -174,7 +173,7 @@ if __name__ == '__main__':
             else:
                 ids_list.append(i)
             
-        return CustomDataset_tracked(text_list, labels_list, ids_list, tokenizer, labeled=labeled)
+        return CustomDataset(text_list, labels_list, ids_list, tokenizer, labeled=labeled)
 
     if use_hpo_paths:
         ds_train = get_dataset_smart(train_path, tokenizer, labeled=True, filter_event=disaster_name)

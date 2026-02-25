@@ -81,15 +81,17 @@ def evaluate(model, test_dataloader, criterion, batch_size, num_labels, temp_sca
                            attention_mask=x['attention_mask'],
                            temperature_scaling=temp_scaling)
             results = torch.argmax(logits.logits, dim=1)
-            prob = F.softmax(logits.logits.cpu(), dim=1)
-            probabilities += list(prob)
+            prob = F.softmax(logits.logits, dim=1).cpu()
+            probabilities.append(prob)
             crt_loss += criterion(logits.logits, x['lbl']).cpu().item()
-            full_predictions += list(results.cpu().numpy())
-            true_labels += list(elem['lbl'].cpu().numpy())
+            full_predictions.append(results.cpu())
+            true_labels.append(elem['lbl'].cpu())
 
     model.train()
 
-    preds = torch.stack(probabilities).to(device)
+    preds = torch.cat(probabilities).to(device)
+    full_predictions = torch.cat(full_predictions).numpy()
+    true_labels = torch.cat(true_labels).numpy()
     orig = torch.tensor(true_labels, dtype=torch.long, device=device)
     metric = MulticlassCalibrationError(num_classes=num_labels, n_bins=10, norm='l1').to(device)
     ece_metric = metric(preds, orig)
@@ -112,12 +114,13 @@ def predict_unlabeled(model, ds_unlabeled):
             pred = model(input_ids=x['input_ids'],
                          token_type_ids=x.get('token_type_ids'),
                          attention_mask=x['attention_mask'])
-            y_pred_unlbl.extend(pred.logits.cpu().numpy())
+            y_pred_unlbl.append(pred.logits.cpu())
 
-    y_pred_unlbl = np.argmax(np.array(y_pred_unlbl), axis=-1).flatten()
+    y_pred_unlbl = torch.cat(y_pred_unlbl, dim=0).numpy()
+    y_pred_unlbl = np.argmax(y_pred_unlbl, axis=-1).flatten()
     return CustomDataset(
         ds_unlabeled.text_list, y_pred_unlbl, ds_unlabeled.idxes,
-        ds_unlabeled.tokenizer, labeled=True)
+        ds_unlabeled.tokenizer, labeled=True, encodings=ds_unlabeled.encodings)
 
 
 # ── SSL with AUM tracking ──────────────────────────────────────────────────────
@@ -366,9 +369,9 @@ def train_model_st_with_aummixup(ds_train, ds_dev, ds_test, ds_unlabeled,
         high_aum_data = pseudolabeled_data.get_subset_dataset(high_aum_ids)
 
         ds_unlabeled_low = CustomDataset(
-            low_aum_data.text_list, low_aum_data.labels, ds_unlabeled.tokenizer, labeled=True)
+            low_aum_data.text_list, low_aum_data.labels, low_aum_data.idxes, ds_unlabeled.tokenizer, labeled=True, encodings=low_aum_data.encodings)
         ds_unlabeled_high = CustomDataset(
-            high_aum_data.text_list, high_aum_data.labels, ds_unlabeled.tokenizer, labeled=True)
+            high_aum_data.text_list, high_aum_data.labels, high_aum_data.idxes, ds_unlabeled.tokenizer, labeled=True, encodings=high_aum_data.encodings)
 
         best_f1_overall, best_f1 = train_ssl_no_aum_with_mixup(
             pt_teacher_checkpoint, ds_train, validation_dataloader, token=token,
@@ -542,18 +545,14 @@ def train_ssl_no_aum_with_sal_mixup(pt_teacher_checkpoint, ds_train, val_dataloa
             batch_size = logits_lbls.shape[0]
 
             # ── Saliency-guided mixup for labeled ↔ low-AUM ──
-            similar = torch.clone(logits_ulbl_low[:batch_size])
-            similar_label = torch.clone(labels_ulbl_low[:batch_size])
-            dissimilar = torch.clone(logits_ulbl_low[:batch_size])
-            dissimilar_label = torch.clone(labels_ulbl_low[:batch_size])
+            sim_matrix = F.cosine_similarity(lbl_grads.unsqueeze(1), ulbl_low_grads[:batch_size].unsqueeze(0), dim=2)
+            argmax_idx = torch.argmax(sim_matrix, dim=1)
+            argmin_idx = torch.argmin(sim_matrix, dim=1)
 
-            for j in range(batch_size):
-                sim_map = cosine_similarity(lbl_grads[j].unsqueeze(0),
-                                            ulbl_low_grads[:batch_size])
-                similar[j] = logits_ulbl_low[:batch_size][torch.argmax(sim_map)]
-                similar_label[j] = labels_ulbl_low[:batch_size][torch.argmax(sim_map)]
-                dissimilar[j] = logits_ulbl_low[:batch_size][torch.argmin(sim_map)]
-                dissimilar_label[j] = labels_ulbl_low[:batch_size][torch.argmin(sim_map)]
+            similar = logits_ulbl_low[:batch_size][argmax_idx]
+            similar_label = labels_ulbl_low[:batch_size][argmax_idx]
+            dissimilar = logits_ulbl_low[:batch_size][argmin_idx]
+            dissimilar_label = labels_ulbl_low[:batch_size][argmin_idx]
 
             M_logits_1_ood = lam * logits_lbls + (1 - lam) * dissimilar
             M_labels_1_ood = lam * labels_lbls + (1 - lam) * dissimilar_label
@@ -561,18 +560,14 @@ def train_ssl_no_aum_with_sal_mixup(pt_teacher_checkpoint, ds_train, val_dataloa
             M_labels_1_id = lam * labels_lbls + (1 - lam) * similar_label
 
             # ── Saliency-guided mixup for high-AUM ↔ low-AUM ──
-            similar_h = torch.clone(logits_ulbl_low)
-            similar_label_h = torch.clone(labels_ulbl_low)
-            dissimilar_h = torch.clone(logits_ulbl_low)
-            dissimilar_label_h = torch.clone(labels_ulbl_low)
+            sim_matrix_h = F.cosine_similarity(ulbl_high_grads.unsqueeze(1), ulbl_low_grads.unsqueeze(0), dim=2)
+            argmax_idx_h = torch.argmax(sim_matrix_h, dim=1)
+            argmin_idx_h = torch.argmin(sim_matrix_h, dim=1)
 
-            for j in range(logits_ulbl_high.shape[0]):
-                sim_map = cosine_similarity(ulbl_high_grads[j].unsqueeze(0),
-                                            ulbl_low_grads)
-                similar_h[j] = logits_ulbl_low[torch.argmax(sim_map)]
-                similar_label_h[j] = labels_ulbl_low[torch.argmax(sim_map)]
-                dissimilar_h[j] = logits_ulbl_low[torch.argmin(sim_map)]
-                dissimilar_label_h[j] = labels_ulbl_low[torch.argmin(sim_map)]
+            similar_h = logits_ulbl_low[argmax_idx_h]
+            similar_label_h = labels_ulbl_low[argmax_idx_h]
+            dissimilar_h = logits_ulbl_low[argmin_idx_h]
+            dissimilar_label_h = labels_ulbl_low[argmin_idx_h]
 
             M_logits_2_ood = lam * logits_ulbl_high + (1 - lam) * dissimilar_h
             M_labels_2_ood = lam * labels_ulbl_high + (1 - lam) * dissimilar_label_h
@@ -614,7 +609,7 @@ def train_ssl_no_aum_with_sal_mixup(pt_teacher_checkpoint, ds_train, val_dataloa
 
 
 class CustomDataset(torch.utils.data.Dataset):
-    def __init__(self, text_list, labels, idxes, tokenizer, max_seq_len=128, labeled=True):
+    def __init__(self, text_list, labels, idxes, tokenizer, max_seq_len=128, labeled=True, encodings=None):
         self.text_list = text_list
         self.labels = labels
         self.tokenizer = tokenizer
@@ -622,11 +617,16 @@ class CustomDataset(torch.utils.data.Dataset):
         self.labeled = labeled
         self.idxes = idxes
         self.weights = [1] * len(self.text_list)
+        
+        if encodings is None:
+            tok = self.tokenizer(
+                self.text_list, padding='max_length', max_length=self.max_seq_len, truncation=True)
+            self.encodings = {key: torch.tensor(tok[key]) for key in tok}
+        else:
+            self.encodings = encodings
 
     def __getitem__(self, idx):
-        tok = self.tokenizer(
-            self.text_list[idx], padding='max_length', max_length=self.max_seq_len, truncation=True)
-        item = {key: torch.tensor(tok[key]) for key in tok}
+        item = {key: val[idx] for key, val in self.encodings.items()}
         if self.labeled:
             item['lbl'] = torch.tensor(self.labels[idx], dtype=torch.long)
         item['idx'] = self.idxes[idx]
@@ -640,12 +640,16 @@ class CustomDataset(torch.utils.data.Dataset):
         # BUG FIX: was O(n²) nested loop; now O(n) using a dict mapping id -> position
         idxs_set = set(idxs)
         text_lists, label_lists, id_lists = [], [], []
+        indices = []
         for pos, (text, label, id_) in enumerate(zip(self.text_list, self.labels, self.idxes)):
             if id_ in idxs_set:
                 text_lists.append(text)
                 label_lists.append(label)
                 id_lists.append(id_)
-        return CustomDataset(text_lists, label_lists, id_lists, self.tokenizer, self.max_seq_len, self.labeled)
+                indices.append(pos)
+        
+        new_encodings = {key: val[indices] for key, val in self.encodings.items()}
+        return CustomDataset(text_lists, label_lists, id_lists, self.tokenizer, self.max_seq_len, self.labeled, encodings=new_encodings)
 
 
 def get_label_to_id(args):
