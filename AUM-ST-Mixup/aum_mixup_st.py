@@ -183,8 +183,7 @@ def train_ssl_no_aum_with_mixup(pt_teacher_checkpoint, ds_train, val_dataloader,
     unlabeled_high = torch.utils.data.DataLoader(ds_high_aum, batch_size=128, shuffle=False)
 
     crt_patience = 0
-    if not os.path.exists(f"data/{model_dir}"):
-        os.makedirs(f"data/{model_dir}")
+    os.makedirs(f"data/{model_dir}", exist_ok=True)
     save_path = f"data/{model_dir}/pytorch_model.bin"
     for epoch in range(ulb_epochs):
         for data_supervised, data_unsup_low, data_unsup_high in tqdm(
@@ -288,6 +287,10 @@ def train_model_st_with_aummixup(ds_train, ds_dev, ds_test, ds_unlabeled,
                                   results_file="", temp_scaling=False, ls=0.0,
                                   run_name="aum_mixup_run", token=None):
 
+    import uuid
+    aum_save_dir = os.path.join(aum_save_dir, f"{run_name}_{uuid.uuid4().hex[:8]}")
+    os.makedirs(aum_save_dir, exist_ok=True)
+
     logger_dict = {"Temperature Scaling": temp_scaling, "Label Smoothing": ls}
 
     train_dataloader = torch.utils.data.DataLoader(
@@ -298,8 +301,7 @@ def train_model_st_with_aummixup(ds_train, ds_dev, ds_test, ds_unlabeled,
         ds_test, batch_size=128, shuffle=False)
 
     loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=ls)
-    if not os.path.exists(f"data/{model_dir}"):
-        os.makedirs(f"data/{model_dir}")
+    os.makedirs(f"data/{model_dir}", exist_ok=True)
     save_path = f"data/{model_dir}/pytorch_model.bin"
 
     best_f1_overall = 0
@@ -489,7 +491,8 @@ def train_ssl_no_aum_with_sal_mixup(pt_teacher_checkpoint, ds_train, val_dataloa
     unlabeled_high = torch.utils.data.DataLoader(ds_high_aum, batch_size=128, shuffle=False)
 
     crt_patience = 0
-    save_path = f"/home/b/bharanibala/datasets/humaid_data/data/{model_dir}/pytorch_model.bin"
+    os.makedirs(f"data/{model_dir}", exist_ok=True)
+    save_path = f"data/{model_dir}/pytorch_model.bin"
 
     for epoch in range(ulb_epochs):
         for data_supervised, data_unsup_low, data_unsup_high in tqdm(
