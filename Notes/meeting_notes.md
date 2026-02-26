@@ -1,3 +1,20 @@
+# 2/26
+## NOTES
+- making paper with xmlEMO + goemotion results
+   - make 4 processed CSVs, xml/goemotion + reddit/bluesky
+- iscram_reddit_bluesky -> bluesky as a social media...
+- goemotion 28 -> 7 (reference cornelia's paper)
+- select the dominant emotion from the top weighted label
+   - then pass it into the emotion map
+- time, date, text, confidence
+- work on the paper, go straight into data
+   - make sure the writing is accurate to how we actually did it
+- (optional) spaCy NER to keep track of governments "what are people angry about?
+   - use it as content analysis
+- pre-process the data
+   - replace "\n" with space
+   - twitter-roberta-base-sentiment-latest
+
 # 2/12
 ## NOTES
 - reset hf_token before next experiment
