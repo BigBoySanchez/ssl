@@ -25,6 +25,7 @@ for e in EVENTS:
     for l in LBCLS:
         for s in SETS:
             EXPECTED_NAMES.add(f"mixmatch_{e}_{l}lbcl_set{s}")
+            EXPECTED_NAMES.add(f"st_{e}_{l}lbcl_set{s}")
 
 print(f"Targeting {len(EXPECTED_NAMES)} valid sweeps.")
 
