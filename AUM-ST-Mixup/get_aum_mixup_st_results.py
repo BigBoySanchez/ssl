@@ -24,11 +24,10 @@ EXPECTED_NAMES = set()
 for e in EVENTS:
     for l in LBCLS:
         for s in SETS:
-            EXPECTED_NAMES.add(f"mixmatch_{e}_{l}lbcl_set{s}")
+            EXPECTED_NAMES.add(f"aum_mixup_{e}_{l}lbcl_set{s}")
 
 print(f"Targeting {len(EXPECTED_NAMES)} valid sweeps.")
 
-# Thread-local storage for API? Not strictly needed if lightweight.
 print_lock = threading.Lock()
 
 def parse_metrics_from_log(run):
@@ -91,7 +90,7 @@ def parse_metrics_from_log(run):
                 json_str = potential_json[:end_idx]
                 try:
                     data = json.loads(json_str)
-                    model_data = data.get("Best mixmatch model") or data.get("Best ST model")
+                    model_data = data.get("Best ST+AumMixup model")
                     if model_data:
                         f1 = model_data.get("F1 after temp scaling") or model_data.get("F1 before temp scaling")
                         ece_raw = model_data.get("ECE after temp scaling") or model_data.get("ECE before temp scaling")
@@ -126,19 +125,14 @@ def prettify_event(event_str):
 
 def process_sweep(sweep):
     # Parse name for metadata
-    # Expected format: mixmatch_{event}_{lbcl}lbcl_set{set_num}
-    m = re.match(r"(?:mixmatch_|st_)?(.+)_(\d+)lbcl_set(\d+)", sweep.name)
+    # Expected format: aum_mixup_{event}_{lbcl}lbcl_set{set_num}
+    m = re.match(r"(?:aum_mixup_)?(.+)_(\d+)lbcl_set(\d+)", sweep.name)
     if not m: return None
     event, lbcl, set_num = m.groups()
     lbcl = int(lbcl)
     set_num = int(set_num)
     
-    # Skip if not in our expected list? User said strict valid sweeps 120.
-    # Our regex captures generic ones too potentially.
-    if sweep.name not in EXPECTED_NAMES and f"mixmatch_{event}_{lbcl}lbcl_set{set_num}" not in EXPECTED_NAMES:
-         # Loose check if name doesn't match exactly but components do?
-         # User said "There are only 120 valid sweeps".
-         # Let's stick to EXPECTED_NAMES check in usage or here.
+    if sweep.name not in EXPECTED_NAMES and f"aum_mixup_{event}_{lbcl}lbcl_set{set_num}" not in EXPECTED_NAMES:
          pass
     
     runs = sweep.runs
@@ -216,10 +210,6 @@ def fetch_sweep_results(project_name, entity=None):
     all_sweeps = list(sweeps)
     valid_sweeps = [s for s in all_sweeps if s.name in EXPECTED_NAMES]
     
-    # Double check if we missed any due to slight naming diffs?
-    # User said "Logic is still terrible... other ones are sweeps I forgot to delete"
-    # So strictly filtering by EXPECTED_NAMES is correct.
-    
     print(f"Found {len(all_sweeps)} total sweeps. Filtering for {len(EXPECTED_NAMES)} valid config names...")
     print(f"Found {len(valid_sweeps)} valid sweeps matching criteria.")
     
@@ -277,7 +267,7 @@ def format_csv(data, output_path):
 
     for lb in sorted(df["lbcl"].unique()):
         # F1
-        row_f1 = ["UST/MixMatch", f"{lb} lb/class", "Macro F1", ""]
+        row_f1 = ["AUM-ST-Mixup", f"{lb} lb/class", "Macro F1", ""]
         f1_vals = []
         for event in all_events:
             for s in all_sets:
@@ -316,7 +306,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True, help="WandB project name")
     parser.add_argument("--entity", required=True, help="WandB entity")
-    parser.add_argument("--output", default="ust_results.csv", help="Output CSV path")
+    parser.add_argument("--output", default="aum_mixup_results.csv", help="Output CSV path")
     args = parser.parse_args()
     
     data = fetch_sweep_results(args.project, args.entity)

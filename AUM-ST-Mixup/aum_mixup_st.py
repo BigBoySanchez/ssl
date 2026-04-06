@@ -133,7 +133,7 @@ def train_ssl_with_aum(pt_teacher_checkpoint, ds_train, ds_pseudolabeled, token=
     loss_fn_supervised = torch.nn.CrossEntropyLoss(reduction='mean', label_smoothing=ls)
     loss_fn_unsupervised = torch.nn.CrossEntropyLoss(reduction='none', label_smoothing=ls)
 
-    data_sampler = torch.utils.data.RandomSampler(ds_train, num_samples=10 ** 4)
+    data_sampler = torch.utils.data.RandomSampler(ds_train, num_samples=10 ** 5, replacement=True)
     batch_sampler = torch.utils.data.BatchSampler(data_sampler, sup_batch_size, drop_last=False)
     train_dataloader = torch.utils.data.DataLoader(ds_train, batch_sampler=batch_sampler)
     data_loader_unlabeled = torch.utils.data.DataLoader(
@@ -169,14 +169,17 @@ def train_ssl_with_aum(pt_teacher_checkpoint, ds_train, ds_pseudolabeled, token=
 def train_ssl_no_aum_with_mixup(pt_teacher_checkpoint, ds_train, val_dataloader, token=None,
                                 ds_low_aum=None, ds_high_aum=None, ulb_epochs=20, ls=0.0, model_dir="",
                                 sup_batch_size=16, best_f1_overall=0, best_f1=0, num_labels=10):
+    save_path = f"data/{model_dir}/pytorch_model.bin"
     model = multigpu(BertModel(pt_teacher_checkpoint, num_labels, token=token))
+    if os.path.exists(save_path):
+        model.load_state_dict(torch.load(save_path))
     optimizer = torch.optim.Adam(model.parameters(), lr=5e-5)
     model.train()
 
     loss_fn_supervised = torch.nn.CrossEntropyLoss(reduction='mean', label_smoothing=ls)
     loss_fn_unsupervised = torch.nn.CrossEntropyLoss(reduction='none', label_smoothing=ls)
 
-    data_sampler = torch.utils.data.RandomSampler(ds_train, num_samples=10 ** 4)
+    data_sampler = torch.utils.data.RandomSampler(ds_train, num_samples=10 ** 5, replacement=True)
     batch_sampler = torch.utils.data.BatchSampler(data_sampler, sup_batch_size, drop_last=False)
     train_dataloader = torch.utils.data.DataLoader(ds_train, batch_sampler=batch_sampler)
     unlabeled_low = torch.utils.data.DataLoader(ds_low_aum, batch_size=128, shuffle=False)
@@ -262,12 +265,14 @@ def train_ssl_no_aum_with_mixup(pt_teacher_checkpoint, ds_train, val_dataloader,
                 torch.save(model.state_dict(), save_path)
                 best_f1_overall = best_f1
             print(f'New best macro validation {best_f1:.4f}  epoch {epoch}')
-        else:
-            crt_patience += 1
-            if crt_patience >= 3:
-                crt_patience = 0
-                print('Exceeding max patience; Exiting..')
-                break
+            continue
+
+        if crt_patience == 3:
+            crt_patience = 0
+            print('Exceeding max patience; Exiting..')
+            break
+
+        crt_patience += 1
 
     return best_f1_overall, best_f1
 
@@ -338,12 +343,14 @@ def train_model_st_with_aummixup(ds_train, ds_dev, ds_test, ds_unlabeled,
                     torch.save(model.state_dict(), save_path)
                     best_f1_overall = best_f1
                 print(f'New best macro validation {best_f1:.4f}  epoch {epoch}')
-            else:
-                crt_patience += 1
-                if crt_patience >= 3:
-                    crt_patience = 0
-                    print('Exceeding max patience; Exiting..')
-                    break
+                continue
+
+            if crt_patience == 3:
+                crt_patience = 0
+                print('Exceeding max patience; Exiting..')
+                break
+
+            crt_patience += 1
 
     del model
 
@@ -352,6 +359,8 @@ def train_model_st_with_aummixup(ds_train, ds_dev, ds_test, ds_unlabeled,
     best_model.load_state_dict(torch.load(save_path))
 
     for epoch in range(unsup_epochs):
+        # Reload teacher from best checkpoint to use improved pseudo-labels
+        best_model.load_state_dict(torch.load(save_path))
         aum_calculator = AUMCalculator(aum_save_dir, compressed=False)
         pseudolabeled_data = predict_unlabeled(best_model, ds_unlabeled)
         train_ssl_with_aum(pt_teacher_checkpoint, ds_train, pseudolabeled_data, token=token,
@@ -476,7 +485,10 @@ def train_model_st_with_aummixup(ds_train, ds_dev, ds_test, ds_unlabeled,
 def train_ssl_no_aum_with_sal_mixup(pt_teacher_checkpoint, ds_train, val_dataloader, token=None,
                                     ds_low_aum=None, ds_high_aum=None, ulb_epochs=20, ls=0.0, model_dir="",
                                     sup_batch_size=16, best_f1_overall=0, best_f1=0, num_labels=10):
+    save_path = f"data/{model_dir}/pytorch_model.bin"
     model = multigpu(BertModel(pt_teacher_checkpoint, num_labels=num_labels, token=token))
+    if os.path.exists(save_path):
+        model.load_state_dict(torch.load(save_path))
     optimizer = torch.optim.Adam(model.parameters(), lr=5e-5)
     model.train()
 
@@ -484,7 +496,7 @@ def train_ssl_no_aum_with_sal_mixup(pt_teacher_checkpoint, ds_train, val_dataloa
     loss_fn_unsupervised = torch.nn.CrossEntropyLoss(reduction='none', label_smoothing=ls)
     cosine_similarity = nn.CosineSimilarity(dim=1, eps=1e-6)
 
-    data_sampler = torch.utils.data.RandomSampler(ds_train, num_samples=10 ** 4)
+    data_sampler = torch.utils.data.RandomSampler(ds_train, num_samples=10 ** 5, replacement=True)
     batch_sampler = torch.utils.data.BatchSampler(data_sampler, sup_batch_size, drop_last=False)
     train_dataloader = torch.utils.data.DataLoader(ds_train, batch_sampler=batch_sampler)
     unlabeled_low = torch.utils.data.DataLoader(ds_low_aum, batch_size=128, shuffle=False)
@@ -605,12 +617,14 @@ def train_ssl_no_aum_with_sal_mixup(pt_teacher_checkpoint, ds_train, val_dataloa
                 torch.save(model.state_dict(), save_path)
                 best_f1_overall = best_f1
             print(f'New best macro validation {best_f1:.4f}  epoch {epoch}')
-        else:
-            crt_patience += 1
-            if crt_patience >= 3:
-                crt_patience = 0
-                print('Exceeding max patience; Exiting..')
-                break
+            continue
+
+        if crt_patience == 3:
+            crt_patience = 0
+            print('Exceeding max patience; Exiting..')
+            break
+
+        crt_patience += 1
 
     return best_f1_overall, best_f1
 

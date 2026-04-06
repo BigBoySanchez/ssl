@@ -65,7 +65,7 @@ if __name__ == '__main__':
     parser.add_argument("--hidden_dropout_prob", nargs="?", type=float, default=0.3, help="dropout probability for hidden layer of teacher model")
     parser.add_argument("--attention_probs_dropout_prob", nargs="?", type=float, default=0.3, help="dropout probability for attention layer of teacher model")
     parser.add_argument("--dense_dropout", nargs="?", type=float, default=0.5, help="dropout probability for final layers of teacher model")
-    parser.add_argument("--temp_scaling", nargs="?", type=bool, default=False, help="temp scaling" )
+    parser.add_argument("--temp_scaling", nargs="?", type=lambda x: str(x).lower() == "true", default=False, help="temp scaling")
     parser.add_argument("--label_smoothing", nargs="?", type=float, default=0.0, help="label smoothing factor")
     
     args = vars(parser.parse_args())
