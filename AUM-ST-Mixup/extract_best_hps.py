@@ -73,7 +73,7 @@ def main():
     target_sweeps = {}  # Map (event, set_num) -> list of runs
     
     # Also pull standalone runs in case the 5lb runs were not sweeps
-    standalone_runs = list(api.project(PROJECT, entity=ENTITY).runs())
+    standalone_runs = list(api.runs(f"{ENTITY}/{PROJECT}"))
 
     print("Parsing Sweeps...")
     for s in sweeps:
