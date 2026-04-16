@@ -444,6 +444,18 @@ def main():
     _, _, test_f1, _ = precision_recall_fscore_support(
         test_gold_ids, test_pred_ids, average="macro", zero_division=0
     )
+    # Per-class F1 breakdown
+    _, _, per_class_f1, per_class_support = precision_recall_fscore_support(
+        test_gold_ids, test_pred_ids, average=None, zero_division=0
+    )
+    per_class_f1_dict = {}
+    for cls_id, (f1_val, sup_val) in enumerate(zip(per_class_f1, per_class_support)):
+        cls_name = id2label[cls_id]
+        per_class_f1_dict[cls_name] = {"f1": float(f1_val), "support": int(sup_val)}
+    print("[per-class F1]")
+    for cls_name, vals in sorted(per_class_f1_dict.items()):
+        print(f"  {cls_name}: f1={vals['f1']:.4f} (n={vals['support']})")
+
     test_ece = expected_calibration_error(test_probs, np.array(test_gold_ids))
 
     # ---- Post-hoc Temperature Scaling (Guo et al., 2017) ----
@@ -466,6 +478,10 @@ def main():
         "test_ece_calibrated": test_ece_calibrated,
         "optimal_temperature": optimal_temp,
     }
+    # Add per-class F1 to metrics
+    for cls_name, vals in per_class_f1_dict.items():
+        test_metrics[f"test_f1_{cls_name}"] = vals["f1"]
+        test_metrics[f"test_support_{cls_name}"] = vals["support"]
     
     # Log to WandB if active
     if wandb.run:
