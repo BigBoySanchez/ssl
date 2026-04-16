@@ -58,10 +58,9 @@ with open('$config_file', 'w') as f:
     local set_num
     set_num=$(python3 -c "import json; print(json.load(open('$HP_FILE'))[$job_idx]['set_num'])")
 
-    echo "🚀 GPU${gpu_id} → ${event} 5lbcl set${set_num} (job ${job_idx})"
-    echo "   Config: ${config}"
 
     docker run -d --gpus "device=${gpu_id}" \
+      --ipc=host \
       -e DEBUG="${DEBUG:-}" \
       -e HF_TOKEN="${HF_TOKEN}" \
       -e WANDB_API_KEY="${WANDB_API_KEY}" \
@@ -75,10 +74,9 @@ with open('$config_file', 'w') as f:
         pip install wandb torchmetrics aum==1.0.2 matplotlib
         CONFIG=$(cat /workspace/ssl/AUM-ST-Mixup/'"${config_file}"')
         echo "=== Running with args: $CONFIG ==="
-        python run_aum_mixup_st.py $CONFIG 2>&1
+        python run_aum_mixup_st.py $CONFIG > /workspace/ssl/AUM-ST-Mixup/log_gpu'"${gpu_id}"'_job'"${job_idx}"'.txt 2>&1
         EXIT_CODE=$?
-        echo "=== Exited with code: $EXIT_CODE ==="
-        rm -f /workspace/ssl/AUM-ST-Mixup/'"${config_file}"'
+        echo "=== Exited with code: $EXIT_CODE ===" >> /workspace/ssl/AUM-ST-Mixup/log_gpu'"${gpu_id}"'_job'"${job_idx}"'.txt
       '
 }
 
