@@ -61,9 +61,6 @@ with open('$config_file', 'w') as f:
     echo "🚀 GPU${gpu_id} → ${event} 5lbcl set${set_num} (job ${job_idx})"
     echo "   Config: ${config}"
 
-    # Copy the config file into the mounted volume so the container can read it
-    cp "$config_file" "${HOME}/ssl/AUM-ST-Mixup/${config_file}"
-
     docker run -d --gpus "device=${gpu_id}" \
       -e DEBUG="${DEBUG:-}" \
       -e HF_TOKEN="${HF_TOKEN}" \
