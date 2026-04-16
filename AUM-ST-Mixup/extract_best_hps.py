@@ -38,10 +38,17 @@ def main():
     # Filter to 5lb sweeps only
     target_sweeps = {}
     for s in sweeps:
-        m = re.match(r"aum_mixup_(.+)_5lbcl_set(\d+)", s.name)
+        if not s.name:
+            continue
+        m = re.match(r"(?:aum_mixup_)?(.+)_(\d+)lbcl_set(\d+)", s.name)
         if not m:
             continue
-        event, set_num = m.group(1), int(m.group(2))
+            
+        event, lbcl, set_num = m.groups()
+        if int(lbcl) != 5:
+            continue
+            
+        set_num = int(set_num)
         key = (event, set_num)
         # If multiple sweeps match (e.g. reruns), keep the one with more runs
         if key not in target_sweeps or len(list(s.runs)) > len(list(target_sweeps[key].runs)):
