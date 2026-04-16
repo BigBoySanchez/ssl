@@ -133,7 +133,7 @@ def train_ssl_with_aum(pt_teacher_checkpoint, ds_train, ds_pseudolabeled, token=
     loss_fn_supervised = torch.nn.CrossEntropyLoss(reduction='mean', label_smoothing=ls)
     loss_fn_unsupervised = torch.nn.CrossEntropyLoss(reduction='none', label_smoothing=ls)
 
-    data_sampler = torch.utils.data.RandomSampler(ds_train, num_samples=10 ** 5, replacement=True)
+    data_sampler = torch.utils.data.RandomSampler(ds_train, num_samples=10 ** 4)
     batch_sampler = torch.utils.data.BatchSampler(data_sampler, sup_batch_size, drop_last=False)
     train_dataloader = torch.utils.data.DataLoader(ds_train, batch_sampler=batch_sampler)
     data_loader_unlabeled = torch.utils.data.DataLoader(
@@ -179,7 +179,7 @@ def train_ssl_no_aum_with_mixup(pt_teacher_checkpoint, ds_train, val_dataloader,
     loss_fn_supervised = torch.nn.CrossEntropyLoss(reduction='mean', label_smoothing=ls)
     loss_fn_unsupervised = torch.nn.CrossEntropyLoss(reduction='none', label_smoothing=ls)
 
-    data_sampler = torch.utils.data.RandomSampler(ds_train, num_samples=10 ** 5, replacement=True)
+    data_sampler = torch.utils.data.RandomSampler(ds_train, num_samples=10 ** 4)
     batch_sampler = torch.utils.data.BatchSampler(data_sampler, sup_batch_size, drop_last=False)
     train_dataloader = torch.utils.data.DataLoader(ds_train, batch_sampler=batch_sampler)
     unlabeled_low = torch.utils.data.DataLoader(ds_low_aum, batch_size=128, shuffle=False)

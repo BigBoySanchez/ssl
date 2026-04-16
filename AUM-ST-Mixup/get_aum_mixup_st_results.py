@@ -20,13 +20,13 @@ EVENTS = [
 LBCLS = [5, 10, 25, 50]
 SETS = [1, 2, 3]
 
-EXPECTED_NAMES = set()
+EXPECTED_SWEEP_NAMES = set()
 for e in EVENTS:
     for l in LBCLS:
         for s in SETS:
-            EXPECTED_NAMES.add(f"aum_mixup_{e}_{l}lbcl_set{s}")
+            EXPECTED_SWEEP_NAMES.add(f"aum_mixup_{e}_{l}lbcl_set{s}")
 
-print(f"Targeting {len(EXPECTED_NAMES)} valid sweeps.")
+print(f"Targeting {len(EXPECTED_SWEEP_NAMES)} valid sweeps/runs.")
 
 print_lock = threading.Lock()
 
@@ -39,7 +39,6 @@ def parse_metrics_from_log(run):
     """
     download_root = f"temp_logs/{run.id}"
     try:
-        # Check if log exists
         try:
              files = run.files() 
              has_log = any(f.name == "output.log" for f in files)
@@ -48,7 +47,6 @@ def parse_metrics_from_log(run):
         except:
              return None, None, None
 
-        # Download to temp dir for thread safety
         os.makedirs(download_root, exist_ok=True)
         run.file("output.log").download(replace=True, root=download_root)
         log_path = os.path.join(download_root, "output.log")
@@ -63,13 +61,11 @@ def parse_metrics_from_log(run):
         with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
 
-        # 1. Parse Best Dev F1
         dev_matches = list(re.finditer(r"New best macro validation\s+([\d\.]+)", content))
         if dev_matches:
             dev_scores = [float(m.group(1)) for m in dev_matches]
             dev_f1 = max(dev_scores)
 
-        # 2. Parse Test Metrics (JSON)
         matches = list(re.finditer(r'\{\s+"Temperature Scaling"', content))
         if matches:
             start_idx = matches[-1].start()
@@ -97,7 +93,6 @@ def parse_metrics_from_log(run):
                         
                         if f1:
                             test_f1 = float(f1)
-                        
                         if ece_raw:
                             if "tensor" in str(ece_raw):
                                 m = re.search(r'tensor\(([\d\.]+)', str(ece_raw))
@@ -113,10 +108,8 @@ def parse_metrics_from_log(run):
     except Exception as e:
         return None, None, None
     finally:
-        # Cleanup
         if os.path.exists(download_root):
-            try:
-                shutil.rmtree(download_root)
+            try: shutil.rmtree(download_root)
             except: pass
 
 def prettify_event(event_str):
@@ -124,53 +117,35 @@ def prettify_event(event_str):
     return event_str.replace("_", " ").title()
 
 def process_sweep(sweep):
-    # Parse name for metadata
-    # Expected format: aum_mixup_{event}_{lbcl}lbcl_set{set_num}
     m = re.match(r"(?:aum_mixup_)?(.+)_(\d+)lbcl_set(\d+)", sweep.name)
     if not m: return None
     event, lbcl, set_num = m.groups()
     lbcl = int(lbcl)
     set_num = int(set_num)
     
-    if sweep.name not in EXPECTED_NAMES and f"aum_mixup_{event}_{lbcl}lbcl_set{set_num}" not in EXPECTED_NAMES:
-         pass
-    
-    runs = sweep.runs
-    # Include crashed/failed runs — they may have valid metrics logged before
-    # the crash (e.g. artifact upload or cleanup failures after test eval)
-    finished = [r for r in runs if r.state in ("finished", "crashed", "failed")]
-    
-    if not finished:
-        return None
+    runs = [r for r in sweep.runs if r.state in ("finished", "crashed", "failed")]
+    if not runs: return None
         
     best_run = None
     best_dev_score = -1.0
     best_test_f1 = 0.0
     best_test_ece = 0.0
     
-    # Try finding best run
-    for r in finished:
-        # 1. Try summary for test metrics only
+    for r in runs:
         test_f1 = r.summary.get("test_macro-F1")
         test_ece = r.summary.get("test_ece")
         
-        # 2. Parse logs to get the BEST dev F1; fall back to summary if unavailable
         p_dev, p_test, p_ece = parse_metrics_from_log(r)
         if p_dev is not None:
             dev = p_dev
         else:
             dev = r.summary.get("dev_macro-F1") or r.summary.get("dev_f1")
         
-        # Use log-parsed test metrics as fallback if summary is empty
-        if test_f1 is None and p_test is not None:
-            test_f1 = p_test
-        if test_ece is None and p_ece is not None:
-            test_ece = p_ece
+        if test_f1 is None and p_test is not None: test_f1 = p_test
+        if test_ece is None and p_ece is not None: test_ece = p_ece
         
         if dev is None: continue
-        
-        try:
-            dev = float(dev)
+        try: dev = float(dev)
         except: continue
         
         if dev > best_dev_score:
@@ -181,8 +156,7 @@ def process_sweep(sweep):
     
     if best_run:
         with print_lock:
-             print(f"Processed {sweep.name}: Best Dev F1={best_dev_score:.4f}")
-        
+             print(f"Processed Auto-Sweep {sweep.name}: Best Dev F1={best_dev_score:.4f}")
         return {
             "sweep_id": sweep.id,
             "event": event,
@@ -194,37 +168,82 @@ def process_sweep(sweep):
         }
     return None
 
+def process_direct_run(run):
+    m = re.match(r"(.+)_(\d+)lb_set(\d+)_aum_mixup", run.name)
+    if not m: return None
+    event, lbcl, set_num = m.groups()
+    lbcl = int(lbcl)
+    set_num = int(set_num)
+
+    if run.state not in ("finished", "crashed", "failed"): return None
+
+    test_f1 = run.summary.get("test_macro-F1")
+    test_ece = run.summary.get("test_ece")
+    
+    p_dev, p_test, p_ece = parse_metrics_from_log(run)
+    if p_dev is not None:
+        dev = p_dev
+    else:
+        dev = run.summary.get("dev_macro-F1") or run.summary.get("dev_f1")
+    
+    if test_f1 is None and p_test is not None: test_f1 = p_test
+    if test_ece is None and p_ece is not None: test_ece = p_ece
+    
+    if dev is None: return None
+    try: dev = float(dev)
+    except: return None
+    
+    with print_lock:
+        print(f"Processed Direct Run {run.name}: Dev F1={dev:.4f}")
+        
+    return {
+        "sweep_id": run.id,
+        "event": event,
+        "lbcl": lbcl,
+        "set_num": set_num,
+        "dev_f1": dev,
+        "test_f1": float(test_f1) if test_f1 is not None else 0.0,
+        "test_ece": float(test_ece) if test_ece is not None else 0.0
+    }
+
 def fetch_sweep_results(project_name, entity=None):
-    print(f"Fetching sweeps from WandB project: {project_name}...")
+    print(f"Fetching data from WandB project: {project_name}...")
     api = wandb.Api(timeout=60)
     
     try:
-        sweeps = api.project(project_name, entity=entity).sweeps()
+        sweeps = list(api.project(project_name, entity=entity).sweeps())
+        runs = list(api.project(project_name, entity=entity).runs())
     except Exception as e:
         print(f"Error accessing WandB project '{project_name}': {e}")
         return []
 
     data = []
     
-    # Filter first
-    all_sweeps = list(sweeps)
-    valid_sweeps = [s for s in all_sweeps if s.name in EXPECTED_NAMES]
+    valid_sweeps = [s for s in sweeps if s.name in EXPECTED_SWEEP_NAMES or (s.name and "aum_mixup_" in s.name)]
+    valid_runs = [r for r in runs if r.name and re.match(r".+_\d+lb_set\d+_aum_mixup", r.name)]
     
-    print(f"Found {len(all_sweeps)} total sweeps. Filtering for {len(EXPECTED_NAMES)} valid config names...")
-    print(f"Found {len(valid_sweeps)} valid sweeps matching criteria.")
+    print(f"Found {len(sweeps)} sweeps. Processing {len(valid_sweeps)} valid sweeps...")
+    print(f"Found {len(runs)} individual runs. Processing {len(valid_runs)} direct reruns...")
     
-    print("Starting parallel processing (max_workers=10)...")
-    
+    # Process sweeps
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(process_sweep, s): s for s in valid_sweeps}
         for future in concurrent.futures.as_completed(futures):
             try:
                 res = future.result()
-                if res:
-                    data.append(res)
+                if res: data.append(res)
             except Exception as e:
-                with print_lock:
-                    print(f"Error processing sweep: {e}")
+                pass
+                
+    # Process direct runs
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(process_direct_run, r): r for r in valid_runs}
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                res = future.result()
+                if res: data.append(res)
+            except Exception as e:
+                pass
                 
     print(f"\nProcessing complete. Retrieved {len(data)} results.")
     return data
@@ -240,14 +259,11 @@ def format_csv(data, output_path):
     df["Event Name"] = df["event"].apply(prettify_event)
     df["Set"] = "Set " + df["set_num"].astype(str)
     
-    # Deduplicate (keep best dev_f1)
+    # Deduplicate (if multiple runs exist for the same config, keep the one with best dev_f1)
     df = df.sort_values(by="dev_f1", ascending=False)
     df = df.drop_duplicates(subset=["event", "lbcl", "set_num"], keep="first")
     
-    # Pivot F1
     pivot_f1 = df.pivot_table(index="lbcl", columns=["Event Name", "Set"], values="test_f1")
-    
-    # Pivot ECE
     pivot_ece = df.pivot_table(index="lbcl", columns=["Event Name", "Set"], values="test_ece")
     
     all_events = sorted(df["Event Name"].unique())
@@ -255,7 +271,6 @@ def format_csv(data, output_path):
     
     final_rows = []
     
-    # Headers
     header_events = ["", "", "Metrics/Event Name", "Average"]
     header_sets = ["", "", "", ""]
     
