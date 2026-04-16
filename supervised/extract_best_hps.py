@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Extract best hyperparameters per (event, lbcl) from WandB sweeps.
+"""Extract best hyperparameters per (event, lbcl, set) from WandB sweeps.
 
-Picks the single best HP config (by F1) for each (event, lbcl) combo across
-all 3 sets, then generates rerun_jobs.txt applying that shared HP to all sets.
+Picks the best HP config (by F1) for each (event, lbcl, set) combo,
+then generates rerun_jobs.txt with per-set optimized HPs.
 
 Usage:
     python extract_best_hps.py                     # query WandB API
@@ -24,7 +24,7 @@ DEFAULT_HP = {"learning_rate": 2e-5, "epochs": 15, "batch_size": 16}
 
 
 def extract_from_wandb(entity, project):
-    """Query WandB API and return best HP per (event, lbcl) by highest F1."""
+    """Query WandB API and return best HP per (event, lbcl, set) by highest F1."""
     import wandb
     api = wandb.Api()
 
@@ -38,14 +38,15 @@ def extract_from_wandb(entity, project):
         cfg = run.config
         event = cfg.get("event")
         lbcl = cfg.get("lbcl")
-        if not event or not lbcl:
+        set_num = cfg.get("set_num")
+        if not event or not lbcl or not set_num:
             continue
 
         f1 = run.summary.get("test_macro_f1", run.summary.get("eval_f1", 0))
         if f1 is None or f1 == 0:
             continue
 
-        key = f"{event}_{lbcl}"
+        key = f"{event}_{lbcl}_s{set_num}"
         if key not in best or f1 > best[key]["f1"]:
             best[key] = {
                 "f1": float(f1),
@@ -75,7 +76,8 @@ def main():
     else:
         print(f"🔍 Querying WandB: {args.entity}/{args.project}")
         best = extract_from_wandb(args.entity, args.project)
-        print(f"✅ Found best HPs for {len(best)}/{len(EVENTS) * len(LBCLS)} (event, lbcl) combos")
+        expected = len(EVENTS) * len(LBCLS) * len(SET_NUMS)
+        print(f"✅ Found best HPs for {len(best)}/{expected} (event, lbcl, set) combos")
 
     # Save HP reference JSON
     with open(args.hp_json, "w") as f:
@@ -87,16 +89,15 @@ def main():
     with open(args.output, "w") as f:
         for lbcl in LBCLS:
             for event in EVENTS:
-                key = f"{event}_{lbcl}"
-                hp = best.get(key, None)
-                if hp is None:
-                    missing.append(key)
-                    hp = DEFAULT_HP
-                lr = hp.get("learning_rate", DEFAULT_HP["learning_rate"])
-                epochs = hp.get("epochs", DEFAULT_HP["epochs"])
-                bs = hp.get("batch_size", DEFAULT_HP["batch_size"])
-
                 for set_num in SET_NUMS:
+                    key = f"{event}_{lbcl}_s{set_num}"
+                    hp = best.get(key, None)
+                    if hp is None:
+                        missing.append(key)
+                        hp = DEFAULT_HP
+                    lr = hp.get("learning_rate", DEFAULT_HP["learning_rate"])
+                    epochs = hp.get("epochs", DEFAULT_HP["epochs"])
+                    bs = hp.get("batch_size", DEFAULT_HP["batch_size"])
                     f.write(f"{event}\t{lbcl}\t{set_num}\t{lr}\t{epochs}\t{bs}\n")
 
     total = len(LBCLS) * len(EVENTS) * len(SET_NUMS)

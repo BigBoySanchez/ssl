@@ -60,11 +60,18 @@ def main():
         if not event or not lbcl or not set_num:
             continue
 
-        f1 = run.summary.get("test_macro_f1", run.summary.get("eval_f1", 0)) or 0
+        # Pick the best run based on validation set performance (eval_f1)
+        # This properly simulates realistic HPO selection without test-set leakage.
+        eval_f1 = run.summary.get("eval_f1", 0) or 0
         key = (event, int(lbcl), int(set_num))
 
-        if key not in best_runs or f1 > best_runs[key]["f1"]:
-            best_runs[key] = {"f1": f1, "run_id": run.id, "run": run}
+        if key not in best_runs or eval_f1 > best_runs[key]["eval_f1"]:
+            best_runs[key] = {
+                "eval_f1": eval_f1, 
+                "test_macro_f1": run.summary.get("test_macro_f1", 0),
+                "run_id": run.id, 
+                "run": run
+            }
 
     print(f"  Scanned {total} runs, found {len(best_runs)} unique (event, lbcl, set) combos")
 
