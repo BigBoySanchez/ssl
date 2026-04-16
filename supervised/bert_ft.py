@@ -51,6 +51,23 @@ def expected_calibration_error(probs, labels, bins=10):
     return ece
 
 
+def fit_temperature_scaling(logits, labels):
+    """Fit optimal temperature to minimize NLL on dev set (Guo et al., 2017).
+    Divides logits by scalar T before softmax: T>1 softens, T<1 sharpens."""
+    from scipy.optimize import minimize_scalar
+
+    logits_t = torch.tensor(logits, dtype=torch.float32)
+    labels_t = torch.tensor(labels, dtype=torch.long)
+
+    def nll(t):
+        scaled = logits_t / t
+        log_probs = torch.nn.functional.log_softmax(scaled, dim=-1)
+        return -log_probs[range(len(labels_t)), labels_t].mean().item()
+
+    result = minimize_scalar(nll, bounds=(0.1, 10.0), method='bounded')
+    return result.x
+
+
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     probs = torch.nn.functional.softmax(torch.tensor(logits), dim=-1).numpy()
@@ -220,7 +237,7 @@ def main():
     ap.add_argument("--epochs_list", nargs="*", type=int, default=[3, 5], dest="epochs_list")
     ap.add_argument("--batch_sizes_list", nargs="*", type=int, default=[16, 32], dest="batch_sizes_list")
     ap.add_argument("--selection_metric", choices=["f1", "accuracy"], default="f1")
-    ap.add_argument("--seed", type=int, default=int(time.time()))
+    ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--allow_cpu", action="store_true")
     ap.add_argument("--max_train_samples", type=int)
 
@@ -428,13 +445,26 @@ def main():
         test_gold_ids, test_pred_ids, average="macro", zero_division=0
     )
     test_ece = expected_calibration_error(test_probs, np.array(test_gold_ids))
-    
-    print(f"[test] accuracy={test_acc:.4f} macro_f1={test_f1:.4f} ece={test_ece:.4f}")
+
+    # ---- Post-hoc Temperature Scaling (Guo et al., 2017) ----
+    dev_pred_logits = trainer.predict(dev_ds).predictions
+    dev_gold_names = [str(x) for x in dev_raw[args.label_col]]
+    dev_gold_ids_list = [label2id[name] for name in dev_gold_names]
+    optimal_temp = fit_temperature_scaling(dev_pred_logits, dev_gold_ids_list)
+    test_probs_calibrated = torch.nn.functional.softmax(
+        torch.tensor(test_pred_logits) / optimal_temp, dim=-1
+    ).numpy()
+    test_ece_calibrated = expected_calibration_error(test_probs_calibrated, np.array(test_gold_ids))
+    print(f"[calibration] Optimal temperature: {optimal_temp:.4f}")
+
+    print(f"[test] accuracy={test_acc:.4f} macro_f1={test_f1:.4f} ece_raw={test_ece:.4f} ece_calibrated={test_ece_calibrated:.4f}")
     
     test_metrics = {
         "test_accuracy": test_acc,
         "test_macro_f1": test_f1,
-        "test_ece": test_ece
+        "test_ece": test_ece,
+        "test_ece_calibrated": test_ece_calibrated,
+        "optimal_temperature": optimal_temp,
     }
     
     # Log to WandB if active
