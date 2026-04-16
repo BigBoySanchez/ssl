@@ -159,7 +159,7 @@ def main():
                 "lbcl": 5,
                 "best_dev_f1": best_dev,
                 "source_run_id": best_run.id,
-                "source_sweep": sweep.name,
+                "source_sweep": getattr(best_run.sweep, "name", best_run.name) if hasattr(best_run, "sweep") and best_run.sweep else best_run.name,
                 "hyperparameters": hp,
             }
             results.append(entry)
