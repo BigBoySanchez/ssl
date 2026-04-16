@@ -36,7 +36,7 @@ def main():
     sweeps = list(api.project(PROJECT, entity=ENTITY).sweeps())
 
     # Filter to 5lb sweeps only
-    target_sweeps = {}
+    target_sweeps = {}  # Map (event, set_num) -> list of runs
     for s in sweeps:
         if not s.name:
             continue
@@ -50,9 +50,14 @@ def main():
             
         set_num = int(set_num)
         key = (event, set_num)
-        # If multiple sweeps match (e.g. reruns), keep the one with more runs
-        if key not in target_sweeps or len(list(s.runs)) > len(list(target_sweeps[key].runs)):
-            target_sweeps[key] = s
+        
+        # Prevent generator exhaustion: evaluate the runs into a list once
+        all_runs = list(s.runs)
+        finished_runs = [r for r in all_runs if r.state in ("finished", "crashed", "failed")]
+        
+        # If multiple sweeps match (e.g. reruns), keep the one with more finished runs
+        if key not in target_sweeps or len(finished_runs) > len(target_sweeps[key]):
+            target_sweeps[key] = finished_runs
 
     print(f"Found {len(target_sweeps)} matching 5lb sweeps")
 
@@ -67,9 +72,7 @@ def main():
                 missing.append(key)
                 continue
 
-            sweep = target_sweeps[key]
-            runs = [r for r in sweep.runs if r.state in ("finished", "crashed", "failed")]
-
+            runs = target_sweeps[key]
             if not runs:
                 print(f"⚠️  No finished runs for {event} set{set_num}")
                 missing.append(key)
