@@ -5,7 +5,7 @@ set -euo pipefail
 # 5LB/CL RERUN - Direct runs using best HPs
 # No sweeps. Just 30 deterministic runs.
 # ──────────────────────────────────────────────
-IMAGE="cahsi/disaster-ssl:cuda12-py2.2"
+IMAGE="cahsi-cotrain:test"
 MAX_GPUS=7
 HP_FILE="best_5lb_hps.json"
 
@@ -26,9 +26,10 @@ launch_run() {
     local job_idx=$2
     local cname="cahsi-aum-5lb-gpu${gpu_id}"
 
-    # Extract config for this job
-    local config
-    config=$(python3 -c "
+    # Extract config for this job and write to a file
+    # (avoids quoting issues when interpolating into docker bash -c)
+    local config_file="run_config_${job_idx}.sh"
+    python3 -c "
 import json
 jobs = json.load(open('$HP_FILE'))
 j = jobs[$job_idx]
@@ -39,15 +40,30 @@ set_num = j['set_num']
 args = f'--event {event} --lbcl 5 --set_num {set_num}'
 for k, v in hp.items():
     args += f' --{k} {v}'
-print(args)
-")
 
+with open('$config_file', 'w') as f:
+    f.write(args)
+"
+
+    if [[ ! -f "$config_file" ]]; then
+      echo "❌ Failed to generate config for job $job_idx"
+      return 1
+    fi
+
+    local config
+    config=$(cat "$config_file")
+    
     local event
     event=$(python3 -c "import json; print(json.load(open('$HP_FILE'))[$job_idx]['event'])")
     local set_num
     set_num=$(python3 -c "import json; print(json.load(open('$HP_FILE'))[$job_idx]['set_num'])")
 
     echo "🚀 GPU${gpu_id} → ${event} 5lbcl set${set_num} (job ${job_idx})"
+    echo "   Config: ${config}"
+
+    # Copy the config file into the mounted volume so the container can read it
+    cp "$config_file" "${HOME}/ssl/AUM-ST-Mixup/${config_file}"
+
     docker run -d --gpus "device=${gpu_id}" \
       -e DEBUG="${DEBUG:-}" \
       -e HF_TOKEN="${HF_TOKEN}" \
@@ -56,12 +72,17 @@ print(args)
       -v /tmp/humaid_ssl:/workspace/ssl/artifacts \
       --name "${cname}" \
       "${IMAGE}" \
-      bash -c "
-        cd /workspace/ssl/AUM-ST-Mixup && \
-        pip install wandb torchmetrics aum==1.0.2 matplotlib && \
-        python run_aum_mixup_st.py ${config} && \
-        echo '[GPU ${gpu_id}] Done: ${event} 5lbcl set${set_num}'
-      "
+      bash -c '
+        set -x
+        cd /workspace/ssl/AUM-ST-Mixup
+        pip install wandb torchmetrics aum==1.0.2 matplotlib
+        CONFIG=$(cat /workspace/ssl/AUM-ST-Mixup/'"${config_file}"')
+        echo "=== Running with args: $CONFIG ==="
+        python run_aum_mixup_st.py $CONFIG 2>&1
+        EXIT_CODE=$?
+        echo "=== Exited with code: $EXIT_CODE ==="
+        rm -f /workspace/ssl/AUM-ST-Mixup/'"${config_file}"'
+      '
 }
 
 # ──────────────────────────────────────────────
