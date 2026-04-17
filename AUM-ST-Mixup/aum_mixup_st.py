@@ -67,9 +67,20 @@ class BertModel(torch.nn.Module):
         return outputs
 
 
+def get_temperature_param(model):
+    if isinstance(model, nn.DataParallel):
+        return model.module.T
+    return model.T
+
+
+def get_temperature_value(model):
+    return float(get_temperature_param(model).detach().cpu().item())
+
+
 # ── Evaluation ─────────────────────────────────────────────────────────────────
 def evaluate(model, test_dataloader, criterion, batch_size, num_labels, temp_scaling=False):
     full_predictions, true_labels, probabilities = [], [], []
+    was_training = model.training
     model.eval()
     crt_loss = 0.0
 
@@ -87,7 +98,8 @@ def evaluate(model, test_dataloader, criterion, batch_size, num_labels, temp_sca
             full_predictions.append(results.cpu())
             true_labels.append(elem['lbl'].cpu())
 
-    model.train()
+    if was_training:
+        model.train()
 
     preds = torch.cat(probabilities).to(device)
     full_predictions = torch.cat(full_predictions).numpy()
@@ -397,6 +409,7 @@ def train_model_st_with_aummixup(ds_train, ds_dev, ds_test, ds_unlabeled,
     # instead of the final best model saved during mixup training.
     final_model = multigpu(BertModel(pt_teacher_checkpoint, num_labels, token=token))
     final_model.load_state_dict(torch.load(save_path))
+    final_model.eval()
 
     rel_file = f"{model_dir}_{results_file}"
     f1_macro_test, loss_test, ece_metric = evaluate(final_model, test_dataloader, loss_fn,
@@ -406,10 +419,18 @@ def train_model_st_with_aummixup(ds_train, ds_dev, ds_test, ds_unlabeled,
     logger_dict["Best ST+AumMixup model"] = {
         "F1 before temp scaling": str(f1_macro_test),
         "ECE before temp scaling": str(ece_metric),
+        "T before temp scaling": str(get_temperature_value(final_model)),
     }
 
     if temp_scaling:
-        optimizer = torch.optim.Adam(final_model.parameters(), lr=2e-2)
+        calibration_loss_fn = torch.nn.CrossEntropyLoss()
+        temp_param = get_temperature_param(final_model)
+        with torch.no_grad():
+            temp_param.fill_(1.0)
+            temp_param.clamp_(min=1e-3, max=100.0)
+
+        final_model.eval()
+        optimizer = torch.optim.Adam([temp_param], lr=2e-2)
         for ep in range(20):
             for data in tqdm(validation_dataloader):
                 cuda = {k: data[k].to(device)
@@ -417,14 +438,17 @@ def train_model_st_with_aummixup(ds_train, ds_dev, ds_test, ds_unlabeled,
                 optimizer.zero_grad()
                 result = final_model(cuda['input_ids'], cuda.get('token_type_ids'),
                                      cuda['attention_mask'], True)
-                loss = loss_fn(result.logits, cuda['lbl'])
+                loss = calibration_loss_fn(result.logits, cuda['lbl'])
                 loss.backward()
                 optimizer.step()
+                with torch.no_grad():
+                    temp_param.clamp_(min=1e-3, max=100.0)
 
         f1_macro_test, _, ece_metric = evaluate(
             final_model, test_dataloader, loss_fn, unsup_batch_size, num_labels, True)
         logger_dict["Best ST+AumMixup model"]["F1 after temp scaling"] = str(f1_macro_test)
         logger_dict["Best ST+AumMixup model"]["ECE after temp scaling"] = str(ece_metric)
+        logger_dict["Best ST+AumMixup model"]["T after temp scaling"] = str(get_temperature_value(final_model))
 
     f1_macro_test_final = float(logger_dict["Best ST+AumMixup model"].get("F1 after temp scaling", logger_dict["Best ST+AumMixup model"].get("F1 before temp scaling")))
     if wandb.run:

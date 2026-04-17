@@ -22,7 +22,7 @@ SETS = [1, 2, 3]
 
 HP_KEYS = [
     "sup_epochs", "unsup_epochs", "sup_batch_size", "unsup_batch_size",
-    "alpha", "T", "sample_size", "unsup_size", "temp_scaling",
+    "alpha", "T", "sample_size", "unsup_size",
     "sample_scheme", "N_base", "label_smoothing", "hidden_dropout_prob",
     "attention_probs_dropout_prob", "dense_dropout",
 ]

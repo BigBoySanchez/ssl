@@ -1,0 +1,1 @@
+--event kerala_floods_2018 --lbcl 5 --set_num 3 --sup_epochs 13 --unsup_epochs 13 --sup_batch_size 16 --unsup_batch_size 64 --alpha 0.6189639749102612 --T 10 --sample_size 1800 --unsup_size 1000 --sample_scheme easy_bald_class_conf --N_base 1 --label_smoothing 0.1 --hidden_dropout_prob 0.1 --attention_probs_dropout_prob 0.1 --dense_dropout 0.1 --temp_scaling True

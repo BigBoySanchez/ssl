@@ -1,0 +1,1 @@
+--event hurricane_harvey_2017 --lbcl 5 --set_num 2 --sup_epochs 23 --unsup_epochs 16 --sup_batch_size 16 --unsup_batch_size 32 --alpha 0.26642822436336017 --T 10 --sample_size 1800 --unsup_size 1000 --sample_scheme easy_bald_class_conf --N_base 1 --label_smoothing 0.1 --hidden_dropout_prob 0.1 --attention_probs_dropout_prob 0.1 --dense_dropout 0.1 --temp_scaling True
