@@ -211,8 +211,21 @@ def fetch_sweep_results(project_name, entity=None):
     api = wandb.Api(timeout=60)
     
     try:
-        sweeps = list(api.project(project_name, entity=entity).sweeps())
-        runs = list(api.project(project_name, entity=entity).runs())
+        project = api.project(project_name, entity=entity)
+        sweeps = list(project.sweeps())
+
+        # Some wandb SDK versions do not expose project.runs().
+        # Fetch runs through api.runs("entity/project") for compatibility.
+        if entity:
+            runs_path = f"{entity}/{project_name}"
+            runs = list(api.runs(runs_path))
+        else:
+            try:
+                runs = list(api.runs(project_name))
+            except Exception:
+                # Fallback to entity discovered from resolved project object.
+                runs_path = f"{project.entity}/{project.name}"
+                runs = list(api.runs(runs_path))
     except Exception as e:
         print(f"Error accessing WandB project '{project_name}': {e}")
         return []
